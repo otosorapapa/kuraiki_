@@ -3,8 +3,9 @@ from __future__ import annotations
 
 # TODO: Streamlit UIコンポーネントを使ってダッシュボードを構築
 import io
-from datetime import date
-from typing import Dict, List
+from datetime import date, datetime
+from typing import Any, Dict, List, Optional
+from urllib.parse import parse_qsl
 
 import numpy as np
 import pandas as pd
@@ -17,10 +18,14 @@ from data_processing import (
     calculate_kpis,
     create_current_pl,
     create_default_cashflow_plan,
+    fetch_sales_from_endpoint,
     forecast_cashflow,
     generate_sample_cost_data,
     generate_sample_sales_data,
     generate_sample_subscription_data,
+    detect_duplicate_rows,
+    validate_channel_fees,
+    ValidationReport,
     load_cost_workbook,
     load_sales_files,
     load_subscription_workbook,
@@ -43,19 +48,24 @@ def load_data(
     uploaded_sales: Dict[str, List],
     cost_file,
     subscription_file,
-) -> Dict[str, pd.DataFrame]:
+    *,
+    automated_sales: Optional[Dict[str, pd.DataFrame]] = None,
+    automated_reports: Optional[List[ValidationReport]] = None,
+) -> Dict[str, Any]:
     """アップロード状況に応じてデータを読み込む。"""
     # TODO: アップロードされたExcelファイルを読み込んでデータフレームに統合
     sales_frames: List[pd.DataFrame] = []
     cost_frames: List[pd.DataFrame] = []
     subscription_frames: List[pd.DataFrame] = []
+    validation_report = ValidationReport()
 
     if use_sample:
         sales_frames.append(generate_sample_sales_data())
         cost_frames.append(generate_sample_cost_data())
         subscription_frames.append(generate_sample_subscription_data())
 
-    loaded_sales = load_sales_files(uploaded_sales)
+    loaded_sales, uploaded_validation = load_sales_files(uploaded_sales)
+    validation_report.extend(uploaded_validation)
     if not loaded_sales.empty:
         sales_frames.append(loaded_sales)
 
@@ -64,14 +74,36 @@ def load_data(
     if subscription_file:
         subscription_frames.append(load_subscription_workbook(subscription_file))
 
+    if automated_sales:
+        for df in automated_sales.values():
+            if df is not None and not df.empty:
+                sales_frames.append(df)
+
+    if automated_reports:
+        for report in automated_reports:
+            validation_report.extend(report)
+
     sales_df = pd.concat(sales_frames, ignore_index=True) if sales_frames else pd.DataFrame()
     cost_df = pd.concat(cost_frames, ignore_index=True) if cost_frames else pd.DataFrame()
     subscription_df = pd.concat(subscription_frames, ignore_index=True) if subscription_frames else pd.DataFrame()
+
+    if not sales_df.empty:
+        combined_duplicates = detect_duplicate_rows(sales_df)
+        if not combined_duplicates.empty:
+            before = len(validation_report.duplicate_rows)
+            validation_report.add_duplicates(combined_duplicates)
+            if len(validation_report.duplicate_rows) > before:
+                validation_report.add_message(
+                    "warning",
+                    f"全チャネルの売上データで重複しているレコードが{len(combined_duplicates)}件検出されました。",
+                    count=int(combined_duplicates.shape[0]),
+                )
 
     return {
         "sales": sales_df,
         "cost": cost_df,
         "subscription": subscription_df,
+        "sales_validation": validation_report,
     }
 
 
@@ -117,6 +149,79 @@ def main() -> None:
         "定期購買/KPIデータ", type=["xlsx", "xls", "csv"], accept_multiple_files=False
     )
 
+    if "api_sales_data" not in st.session_state:
+        st.session_state["api_sales_data"] = {}
+    if "api_sales_validation" not in st.session_state:
+        st.session_state["api_sales_validation"] = {}
+    if "api_last_fetched" not in st.session_state:
+        st.session_state["api_last_fetched"] = {}
+
+    st.sidebar.markdown("---")
+    with st.sidebar.expander("API/RPA自動連携設定", expanded=False):
+        st.caption("各モールのAPIやRPAが出力したURLを登録すると、手動アップロードなしで売上データを取得できます。")
+        for channel in channel_files.keys():
+            endpoint = st.text_input(f"{channel} APIエンドポイント", key=f"api_endpoint_{channel}")
+            token = st.text_input(
+                f"{channel} APIトークン/キー",
+                key=f"api_token_{channel}",
+                type="password",
+                help="必要に応じてBasic認証やBearerトークンを設定してください。",
+            )
+            params_raw = st.text_input(
+                f"{channel} クエリパラメータ (key=value&...)",
+                key=f"api_params_{channel}",
+                help="日付範囲などの条件が必要な場合に指定します。",
+            )
+
+            params_dict: Optional[Dict[str, str]] = None
+            if params_raw:
+                parsed_pairs = parse_qsl(params_raw, keep_blank_values=False)
+                if parsed_pairs:
+                    params_dict = {k: v for k, v in parsed_pairs}
+
+            fetch_now = st.button(f"{channel}の最新データを取得", key=f"fetch_api_{channel}")
+            if fetch_now:
+                if not endpoint:
+                    st.warning("エンドポイントURLを入力してください。")
+                else:
+                    with st.spinner(f"{channel}のデータを取得中..."):
+                        fetched_df, fetch_report = fetch_sales_from_endpoint(
+                            endpoint,
+                            token=token or None,
+                            params=params_dict,
+                            channel_hint=channel,
+                        )
+                    st.session_state["api_sales_data"][channel] = fetched_df
+                    st.session_state["api_sales_validation"][channel] = fetch_report
+                    st.session_state["api_last_fetched"][channel] = datetime.now()
+                    if fetch_report.has_errors():
+                        st.error(f"{channel}のAPI連携でエラーが発生しました。詳細はデータ管理タブをご確認ください。")
+                    elif fetch_report.has_warnings():
+                        st.warning(f"{channel}のデータは取得しましたが警告があります。データ管理タブで確認してください。")
+                    else:
+                        st.success(f"{channel}のデータ取得が完了しました。")
+
+            last_fetch = st.session_state["api_last_fetched"].get(channel)
+            if last_fetch:
+                status_report: Optional[ValidationReport] = st.session_state["api_sales_validation"].get(channel)
+                latest_df = st.session_state["api_sales_data"].get(channel)
+                record_count = len(latest_df) if isinstance(latest_df, pd.DataFrame) else 0
+                if status_report and status_report.has_errors():
+                    status_icon = "❌"
+                elif status_report and status_report.has_warnings():
+                    status_icon = "⚠️"
+                else:
+                    status_icon = "✅"
+                st.caption(
+                    f"{status_icon} 最終取得: {last_fetch.strftime('%Y-%m-%d %H:%M')} / {record_count:,} 件"
+                )
+
+        if st.button("自動取得データをクリア", key="clear_api_sales"):
+            st.session_state["api_sales_data"].clear()
+            st.session_state["api_sales_validation"].clear()
+            st.session_state["api_last_fetched"].clear()
+            st.success("保存されていたAPI取得データをクリアしました。")
+
     fixed_cost = st.sidebar.number_input(
         "月間固定費（販管費のうち人件費・地代等）",
         value=float(DEFAULT_FIXED_COST),
@@ -139,14 +244,28 @@ def main() -> None:
         manual_marketing = st.number_input("当月広告費", min_value=0.0, value=0.0, step=50_000.0)
         manual_ltv = st.number_input("LTV試算値", min_value=0.0, value=0.0, step=1_000.0)
 
-    data_dict = load_data(use_sample_data, channel_files, cost_file, subscription_file)
+    automated_sales_data = st.session_state.get("api_sales_data", {})
+    automated_reports = list(st.session_state.get("api_sales_validation", {}).values())
+
+    data_dict = load_data(
+        use_sample_data,
+        channel_files,
+        cost_file,
+        subscription_file,
+        automated_sales=automated_sales_data,
+        automated_reports=automated_reports,
+    )
     sales_df = data_dict["sales"].copy()
     cost_df = data_dict["cost"].copy()
     subscription_df = data_dict["subscription"].copy()
+    sales_validation: ValidationReport = data_dict.get("sales_validation", ValidationReport())
 
     if sales_df.empty:
         st.warning("売上データが読み込めませんでした。サンプルデータを利用するか、ファイルをアップロードしてください。")
         return
+
+    merged_full = merge_sales_and_costs(sales_df, cost_df)
+    sales_validation.extend(validate_channel_fees(merged_full))
 
     available_channels = sorted(sales_df["channel"].unique())
     min_date = sales_df["order_date"].min().date()
@@ -467,10 +586,48 @@ def main() -> None:
             """
         )
 
+        if sales_validation:
+            st.markdown("### 読み込みバリデーション結果")
+            for idx, message in enumerate(sales_validation.messages):
+                display_text = message.message
+                if message.count is not None:
+                    display_text += f" (対象: {message.count:,}件)"
+                if message.level == "error":
+                    st.error(display_text)
+                else:
+                    st.warning(display_text)
+                if message.sample is not None and not message.sample.empty:
+                    with st.expander(f"該当レコードの例 ({idx + 1})"):
+                        st.dataframe(message.sample)
+            if not sales_validation.duplicate_rows.empty:
+                st.warning("重複している可能性があるレコード一覧 (先頭200件)")
+                st.dataframe(sales_validation.duplicate_rows.head(200))
+        else:
+            st.success("データ読み込み時に重大な問題は検出されませんでした。")
+
+        if automated_sales_data:
+            status_rows = []
+            for channel, df in automated_sales_data.items():
+                last_fetch = st.session_state["api_last_fetched"].get(channel)
+                report: Optional[ValidationReport] = st.session_state["api_sales_validation"].get(channel)
+                if last_fetch:
+                    status = "エラー" if report and report.has_errors() else "警告あり" if report and report.has_warnings() else "正常"
+                    status_rows.append(
+                        {
+                            "チャネル": channel,
+                            "最終取得": last_fetch.strftime("%Y-%m-%d %H:%M"),
+                            "取得件数": len(df) if isinstance(df, pd.DataFrame) else 0,
+                            "ステータス": status,
+                        }
+                    )
+            if status_rows:
+                st.markdown("### API連携ステータス")
+                st.dataframe(pd.DataFrame(status_rows))
+
         st.write("現在のデータ件数")
         summary_cols = st.columns(3)
-        summary_cols[0].metric("売上明細件数", len(merged_df))
-        summary_cols[1].metric("取り扱い商品数", merged_df["product_code"].nunique())
+        summary_cols[0].metric("売上明細件数", len(merged_full))
+        summary_cols[1].metric("取り扱い商品数", merged_full["product_code"].nunique())
         summary_cols[2].metric("期間", f"{min_date} 〜 {max_date}")
 
         with st.expander("原価率データのプレビュー"):
@@ -480,7 +637,7 @@ def main() -> None:
                 st.dataframe(cost_df)
 
         with st.expander("売上データのプレビュー"):
-            st.dataframe(merged_df.head(100))
+            st.dataframe(merged_full.head(100))
 
         st.markdown("テンプレート/サンプルデータのダウンロード")
         download_button_from_df("サンプル売上データ", generate_sample_sales_data().head(200), "sample_sales.csv")

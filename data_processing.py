@@ -2,11 +2,14 @@
 from __future__ import annotations
 
 # TODO: pandasとnumpyを使ってデータ集計を行う
+import io
 import math
-from typing import Dict, Iterable, List, Optional
+from dataclasses import dataclass, field
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
+import requests
 
 # 共通で利用する列名の定義
 NORMALIZED_SALES_COLUMNS = [
@@ -61,6 +64,94 @@ DEFAULT_CHANNEL_FEE_RATES: Dict[str, float] = {
 
 DEFAULT_FIXED_COST = 2_500_000  # 人件費や管理費などの固定費（目安）
 DEFAULT_LOAN_REPAYMENT = 600_000  # 月次の借入返済額の仮値
+
+
+@dataclass
+class ValidationMessage:
+    """Represents a validation result item for loaded datasets."""
+
+    level: str
+    message: str
+    count: Optional[int] = None
+    sample: Optional[pd.DataFrame] = None
+
+
+@dataclass
+class ValidationReport:
+    """Aggregated validation results for sales data ingestion."""
+
+    messages: List[ValidationMessage] = field(default_factory=list)
+    duplicate_rows: pd.DataFrame = field(default_factory=pd.DataFrame)
+
+    def add_message(
+        self,
+        level: str,
+        message: str,
+        *,
+        count: Optional[int] = None,
+        sample: Optional[pd.DataFrame] = None,
+    ) -> None:
+        """Append a validation message, storing a small sample if provided."""
+
+        sample_to_store: Optional[pd.DataFrame] = None
+        if sample is not None and not sample.empty:
+            sample_to_store = sample.copy().head(50)
+        self.messages.append(
+            ValidationMessage(level=level, message=message, count=count, sample=sample_to_store)
+        )
+
+    def add_duplicates(self, duplicates: pd.DataFrame) -> None:
+        """Store duplicate records detected during validation."""
+
+        if duplicates is None or duplicates.empty:
+            return
+        if self.duplicate_rows.empty:
+            self.duplicate_rows = duplicates.copy()
+        else:
+            self.duplicate_rows = (
+                pd.concat([self.duplicate_rows, duplicates], ignore_index=True)
+                .drop_duplicates()
+                .reset_index(drop=True)
+            )
+
+    def extend(self, other: Optional["ValidationReport"]) -> None:
+        """Merge another validation report into this one."""
+
+        if other is None:
+            return
+        self.messages.extend(other.messages)
+        self.add_duplicates(other.duplicate_rows)
+
+    def has_errors(self) -> bool:
+        return any(msg.level == "error" for msg in self.messages)
+
+    def has_warnings(self) -> bool:
+        return any(msg.level == "warning" for msg in self.messages)
+
+    def __bool__(self) -> bool:  # pragma: no cover - convenience
+        return bool(self.messages) or not self.duplicate_rows.empty
+
+
+def detect_duplicate_rows(
+    df: pd.DataFrame,
+    subset: Optional[List[str]] = None,
+) -> pd.DataFrame:
+    """Return rows that are duplicated for the given subset of columns."""
+
+    if df is None or df.empty:
+        return pd.DataFrame(columns=df.columns if df is not None else [])
+
+    dedupe_subset = subset or [
+        "order_date",
+        "channel",
+        "product_code",
+        "customer_id",
+        "sales_amount",
+    ]
+    duplicates = df[df.duplicated(subset=dedupe_subset, keep=False)].copy()
+    if duplicates.empty:
+        return pd.DataFrame(columns=df.columns)
+    return duplicates.sort_values(by=dedupe_subset).reset_index(drop=True)
 
 
 def detect_channel_from_filename(filename: Optional[str]) -> Optional[str]:
@@ -129,37 +220,290 @@ def normalize_sales_df(df: pd.DataFrame, channel: Optional[str] = None) -> pd.Da
     return normalized
 
 
-def load_sales_workbook(uploaded_file, channel_hint: Optional[str] = None) -> pd.DataFrame:
-    """アップロードされたExcel/CSVを読み込み正規化する。"""
-    if uploaded_file is None:
-        return pd.DataFrame(columns=NORMALIZED_SALES_COLUMNS)
+def validate_sales_integrity(
+    raw_df: pd.DataFrame,
+    normalized_df: pd.DataFrame,
+    *,
+    source: Optional[str] = None,
+) -> ValidationReport:
+    """Validate essential columns and value ranges for sales data."""
 
-    # TODO: pandas.read_excelでファイル内容を読み込む
+    report = ValidationReport()
+    label = f"[{source}] " if source else ""
+
+    if raw_df is None:
+        report.add_message("error", f"{label}ファイルが読み込めませんでした。")
+        return report
+
+    if raw_df.empty:
+        report.add_message("warning", f"{label}データ行が存在しません。空のファイルが指定されている可能性があります。")
+        return report
+
+    rename_map = _build_rename_map(raw_df.columns, SALES_COLUMN_ALIASES)
+    resolved_columns = set(rename_map.values())
+
+    essential_columns = {
+        "order_date": "注文日",
+        "sales_amount": "売上金額",
+        "quantity": "数量",
+    }
+    for canonical, display in essential_columns.items():
+        has_column = canonical in resolved_columns or canonical in raw_df.columns
+        if not has_column:
+            report.add_message(
+                "error",
+                f"{label}必須項目「{display}」が見つかりません。列名が正しくマッピングされているか確認してください。",
+            )
+
+    if normalized_df is None or normalized_df.empty:
+        report.add_message(
+            "warning",
+            f"{label}正しく読み込めた売上データがありませんでした。ファイル内容を確認してください。",
+        )
+        return report
+
+    date_col = next((col for col, canonical in rename_map.items() if canonical == "order_date"), None)
+    if date_col:
+        parsed_dates = pd.to_datetime(raw_df[date_col], errors="coerce")
+        invalid_dates = raw_df.loc[parsed_dates.isna()]
+        if not invalid_dates.empty:
+            report.add_message(
+                "warning",
+                f"{label}日付が解釈できなかったレコードが{len(invalid_dates)}件あり、読み込み対象から除外しました。",
+                count=int(invalid_dates.shape[0]),
+                sample=invalid_dates[[date_col]],
+            )
+
+    quantity_col = next((col for col, canonical in rename_map.items() if canonical == "quantity"), None)
+    if quantity_col:
+        raw_quantity = pd.to_numeric(raw_df[quantity_col], errors="coerce")
+        invalid_quantity = raw_df.loc[raw_quantity.isna() | (raw_quantity <= 0)]
+        if not invalid_quantity.empty:
+            report.add_message(
+                "error",
+                f"{label}数量が0以下、または未入力のレコードが{len(invalid_quantity)}件あります。",
+                count=int(invalid_quantity.shape[0]),
+                sample=invalid_quantity[[quantity_col]],
+            )
+
+    sales_col = next((col for col, canonical in rename_map.items() if canonical == "sales_amount"), None)
+    if sales_col:
+        raw_sales = pd.to_numeric(raw_df[sales_col], errors="coerce")
+        missing_sales = raw_df.loc[raw_sales.isna()]
+        if not missing_sales.empty:
+            report.add_message(
+                "error",
+                f"{label}売上高が数値として読み取れないレコードが{len(missing_sales)}件あります。",
+                count=int(missing_sales.shape[0]),
+                sample=missing_sales[[sales_col]],
+            )
+        negative_sales = raw_df.loc[raw_sales < 0]
+        if not negative_sales.empty:
+            report.add_message(
+                "error",
+                f"{label}売上高がマイナスのレコードが{len(negative_sales)}件あります。",
+                count=int(negative_sales.shape[0]),
+                sample=negative_sales[[sales_col]],
+            )
+        zero_sales = raw_df.loc[raw_sales == 0]
+        if not zero_sales.empty:
+            report.add_message(
+                "warning",
+                f"{label}売上高が0円のレコードが{len(zero_sales)}件あります。無償提供等で問題ないか確認してください。",
+                count=int(zero_sales.shape[0]),
+                sample=zero_sales[[sales_col]],
+            )
+
+    invalid_unit_price = normalized_df[
+        (~np.isfinite(normalized_df["unit_price"])) | (normalized_df["unit_price"] <= 0)
+    ]
+    if not invalid_unit_price.empty:
+        report.add_message(
+            "error",
+            f"{label}単価が0以下、または計算できないレコードが{len(invalid_unit_price)}件あります。",
+            count=int(invalid_unit_price.shape[0]),
+            sample=invalid_unit_price[
+                ["order_date", "channel", "product_code", "quantity", "sales_amount", "unit_price"]
+            ],
+        )
+
+    extreme_unit_price = normalized_df[normalized_df["unit_price"] > 1_000_000]
+    if not extreme_unit_price.empty:
+        report.add_message(
+            "warning",
+            f"{label}単価が1,000,000円を超えるレコードが{len(extreme_unit_price)}件あります。異常値でないか確認してください。",
+            count=int(extreme_unit_price.shape[0]),
+            sample=extreme_unit_price[
+                ["order_date", "channel", "product_code", "quantity", "sales_amount", "unit_price"]
+            ],
+        )
+
+    duplicates = detect_duplicate_rows(normalized_df)
+    if not duplicates.empty:
+        report.add_message(
+            "warning",
+            f"{label}重複している可能性のあるレコードが{len(duplicates)}件あります。",
+            count=int(duplicates.shape[0]),
+        )
+        report.add_duplicates(duplicates)
+
+    return report
+
+
+def load_sales_workbook(
+    uploaded_file,
+    channel_hint: Optional[str] = None,
+) -> Tuple[pd.DataFrame, ValidationReport]:
+    """アップロードされたExcel/CSVを読み込み正規化する。"""
+
+    if uploaded_file is None:
+        return pd.DataFrame(columns=NORMALIZED_SALES_COLUMNS), ValidationReport()
+
+    try:
+        uploaded_file.seek(0)
+    except Exception:  # pragma: no cover - Streamlit's UploadedFile may not support seek
+        pass
+
+    read_errors: List[str] = []
+
     try:
         df = pd.read_excel(uploaded_file)
-    except ValueError:
-        uploaded_file.seek(0)
-        df = pd.read_csv(uploaded_file)
+    except ValueError as exc:
+        read_errors.append(str(exc))
+        try:
+            uploaded_file.seek(0)
+        except Exception:  # pragma: no cover - as above
+            pass
+        try:
+            df = pd.read_csv(uploaded_file)
+        except pd.errors.EmptyDataError as exc:
+            read_errors.append(str(exc))
+            df = pd.DataFrame()
+        except Exception as exc:  # pragma: no cover - unexpected parsers
+            read_errors.append(str(exc))
+            df = pd.DataFrame()
+    except Exception as exc:  # pragma: no cover - general fallback
+        read_errors.append(str(exc))
+        df = pd.DataFrame()
 
     detected = channel_hint or detect_channel_from_filename(getattr(uploaded_file, "name", None))
-    return normalize_sales_df(df, channel=detected)
+    normalized = normalize_sales_df(df, channel=detected)
+
+    source_name_parts: List[str] = []
+    if channel_hint:
+        source_name_parts.append(channel_hint)
+    elif detected:
+        source_name_parts.append(detected)
+    file_name = getattr(uploaded_file, "name", None)
+    if file_name:
+        source_name_parts.append(file_name)
+    source_name = " - ".join(source_name_parts) if source_name_parts else file_name
+
+    validation = validate_sales_integrity(df, normalized, source=source_name)
+    if read_errors and normalized.empty:
+        validation.add_message(
+            "error",
+            f"{source_name or 'アップロードデータ'}の読み込みに失敗しました: {read_errors[-1]}",
+        )
+    return normalized, validation
 
 
-def load_sales_files(files_by_channel: Dict[str, List]) -> pd.DataFrame:
+def load_sales_files(files_by_channel: Dict[str, List]) -> Tuple[pd.DataFrame, ValidationReport]:
     """チャネルごとのファイル群を統合した売上データを作成する。"""
+
     frames: List[pd.DataFrame] = []
+    combined_report = ValidationReport()
+
     for channel, files in files_by_channel.items():
         if not files:
             continue
         for uploaded in files:
-            normalized = load_sales_workbook(uploaded, channel_hint=channel)
+            normalized, report = load_sales_workbook(uploaded, channel_hint=channel)
+            combined_report.extend(report)
             if not normalized.empty:
                 frames.append(normalized)
+
     if not frames:
-        return pd.DataFrame(columns=NORMALIZED_SALES_COLUMNS)
+        return pd.DataFrame(columns=NORMALIZED_SALES_COLUMNS), combined_report
+
     combined = pd.concat(frames, ignore_index=True)
     combined.sort_values("order_date", inplace=True)
-    return combined
+
+    duplicates = detect_duplicate_rows(combined)
+    if not duplicates.empty:
+        previous_count = len(combined_report.duplicate_rows)
+        combined_report.add_duplicates(duplicates)
+        if len(combined_report.duplicate_rows) > previous_count:
+            combined_report.add_message(
+                "warning",
+                f"取り込んだ売上データ全体で重複しているレコードが{len(duplicates)}件見つかりました。",
+                count=int(duplicates.shape[0]),
+            )
+
+    return combined, combined_report
+
+
+def fetch_sales_from_endpoint(
+    endpoint: str,
+    *,
+    token: Optional[str] = None,
+    params: Optional[Dict[str, Any]] = None,
+    channel_hint: Optional[str] = None,
+    timeout: int = 30,
+) -> Tuple[pd.DataFrame, ValidationReport]:
+    """Fetch sales data from a remote API endpoint and normalize it."""
+
+    report = ValidationReport()
+    if not endpoint:
+        report.add_message("error", "APIエンドポイントが設定されていません。")
+        return pd.DataFrame(columns=NORMALIZED_SALES_COLUMNS), report
+
+    headers = {"Accept": "*/*"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+
+    try:
+        response = requests.get(endpoint, headers=headers, params=params, timeout=timeout)
+        response.raise_for_status()
+    except requests.RequestException as exc:
+        report.add_message("error", f"APIからのデータ取得に失敗しました: {exc}")
+        return pd.DataFrame(columns=NORMALIZED_SALES_COLUMNS), report
+
+    content_type = (response.headers.get("Content-Type") or "").lower()
+
+    try:
+        if "json" in content_type or endpoint.lower().endswith(".json"):
+            payload = response.json()
+            if isinstance(payload, dict):
+                for key in ("data", "results", "items", "orders", "records"):
+                    value = payload.get(key)
+                    if isinstance(value, list):
+                        payload = value
+                        break
+                else:
+                    payload = [payload]
+            if isinstance(payload, list):
+                df = pd.DataFrame(payload)
+            else:
+                df = pd.DataFrame(payload)
+        elif any(endpoint.lower().endswith(ext) for ext in (".xls", ".xlsx")) or "excel" in content_type:
+            df = pd.read_excel(io.BytesIO(response.content))
+        else:
+            df = pd.read_csv(io.StringIO(response.text))
+    except ValueError as exc:
+        report.add_message("error", f"APIレスポンスの解析に失敗しました: {exc}")
+        return pd.DataFrame(columns=NORMALIZED_SALES_COLUMNS), report
+    except pd.errors.EmptyDataError:
+        report.add_message("warning", "APIレスポンスにデータが含まれていませんでした。")
+        return pd.DataFrame(columns=NORMALIZED_SALES_COLUMNS), report
+
+    normalized = normalize_sales_df(df, channel=channel_hint)
+    source = channel_hint or endpoint
+    validation = validate_sales_integrity(df, normalized, source=source)
+    if normalized.empty:
+        validation.add_message("warning", f"{source} から取得したデータは空でした。")
+
+    return normalized, validation
 
 
 def load_cost_workbook(uploaded_file) -> pd.DataFrame:
@@ -279,6 +623,47 @@ def merge_sales_and_costs(sales_df: pd.DataFrame, cost_df: pd.DataFrame) -> pd.D
     merged["channel_fee_amount"] = merged["sales_amount"] * merged["channel_fee"]
     merged["net_gross_profit"] = merged["gross_profit"] - merged["channel_fee_amount"]
     return merged
+
+
+def validate_channel_fees(merged_df: pd.DataFrame) -> ValidationReport:
+    """Validate that channel fee related fields are populated with sane values."""
+
+    report = ValidationReport()
+    if merged_df is None or merged_df.empty:
+        return report
+
+    known_channels = set(DEFAULT_CHANNEL_FEE_RATES.keys())
+    present_channels = {ch for ch in merged_df["channel"].dropna().unique()}
+    unknown_channels = sorted(present_channels - known_channels)
+    if unknown_channels:
+        report.add_message(
+            "warning",
+            "チャネル手数料率が未設定のチャネルがあります: " + ", ".join(unknown_channels) + "。DEFAULT_CHANNEL_FEE_RATESに追加してください。",
+        )
+
+    if "channel_fee_amount" in merged_df.columns:
+        negative_fee = merged_df[merged_df["channel_fee_amount"] < 0]
+        if not negative_fee.empty:
+            report.add_message(
+                "error",
+                f"手数料金額がマイナスになっているレコードが{len(negative_fee)}件あります。",
+                count=int(negative_fee.shape[0]),
+                sample=negative_fee[["order_date", "channel", "sales_amount", "channel_fee_amount"]],
+            )
+
+        excessive_fee = merged_df[
+            (merged_df["sales_amount"].abs() > 0)
+            & (merged_df["channel_fee_amount"].abs() > merged_df["sales_amount"].abs())
+        ]
+        if not excessive_fee.empty:
+            report.add_message(
+                "warning",
+                f"手数料金額が売上高を上回っているレコードが{len(excessive_fee)}件あります。設定ミスがないか確認してください。",
+                count=int(excessive_fee.shape[0]),
+                sample=excessive_fee[["order_date", "channel", "sales_amount", "channel_fee_amount"]],
+            )
+
+    return report
 
 
 def aggregate_sales(df: pd.DataFrame, group_fields: List[str]) -> pd.DataFrame:
