@@ -783,6 +783,7 @@ def calculate_kpis(
         "new_customers": new_customers,
         "repeat_customers": repeat_customers,
         "cancelled_subscriptions": cancelled,
+        "previous_active_customers": prev_active,
         "marketing_cost": marketing_cost,
         "ltv": ltv_value,
         "arpu": arpu,
