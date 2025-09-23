@@ -15,6 +15,7 @@ from streamlit_plotly_events import plotly_events
 
 from data_processing import (
     DEFAULT_FIXED_COST,
+    annotate_customer_segments,
     build_alerts,
     calculate_kpis,
     create_current_pl,
@@ -35,6 +36,7 @@ from data_processing import (
     simulate_pl,
     compute_channel_share,
     compute_category_share,
+    compute_kpi_breakdown,
 )
 
 st.set_page_config(
@@ -545,6 +547,7 @@ def main() -> None:
 
     filtered_sales = apply_filters(sales_df, selected_channels, date_range, selected_categories)
     merged_df = merge_sales_and_costs(filtered_sales, cost_df)
+    segmented_sales_df = annotate_customer_segments(merged_df)
     monthly_summary = monthly_sales_summary(merged_df)
     period_summary = summarize_sales_by_period(merged_df, selected_freq)
 
@@ -1281,6 +1284,180 @@ def main() -> None:
                 ].rename(columns={"month_str": "month"})
             )
 
+            st.markdown("### KPIセグメント分析")
+            segment_months = (
+                segmented_sales_df["order_month"].dropna().sort_values().unique()
+                if not segmented_sales_df.empty and "order_month" in segmented_sales_df.columns
+                else []
+            )
+            period_options = ["全期間"]
+            period_map: Dict[str, Optional[pd.Period]] = {"全期間": None}
+            for period_value in segment_months:
+                label = str(period_value)
+                period_options.append(label)
+                period_map[label] = period_value
+            default_period_index = len(period_options) - 1 if len(period_options) > 1 else 0
+            selected_period_label = st.selectbox(
+                "分析対象期間",
+                options=period_options,
+                index=default_period_index,
+                help="チャネル別・カテゴリ別のKPI集計に用いる期間を選択します。",
+            )
+            selected_period_value = period_map.get(selected_period_label)
+            if selected_period_value is None:
+                segmented_target_df = segmented_sales_df.copy()
+            else:
+                segmented_target_df = segmented_sales_df[
+                    segmented_sales_df["order_month"] == selected_period_value
+                ]
+
+            if segmented_target_df.empty:
+                st.info("選択された期間に該当するデータがありません。")
+            else:
+                breakdown_configs = [
+                    ("チャネル別", "channel", "チャネル"),
+                    ("カテゴリ別", "category", "商品カテゴリ"),
+                    ("顧客区分別", "customer_segment", "顧客区分"),
+                ]
+                breakdown_tables: List[Tuple[str, str, str, pd.DataFrame]] = []
+                for title, column, label in breakdown_configs:
+                    df_breakdown = compute_kpi_breakdown(
+                        segmented_target_df, column, kpi_totals=kpis
+                    )
+                    breakdown_tables.append((title, column, label, df_breakdown))
+
+                if "campaign" in segmented_target_df.columns:
+                    campaign_breakdown = compute_kpi_breakdown(
+                        segmented_target_df, "campaign", kpi_totals=kpis
+                    )
+                    breakdown_tables.append(
+                        ("キャンペーン別", "campaign", "キャンペーン", campaign_breakdown)
+                    )
+
+                st.caption("広告費や解約率は最新KPI値をシェアに応じて按分した推計値です。")
+                breakdown_tabs = st.tabs([title for title, *_ in breakdown_tables])
+                for tab_obj, (title, column, label, df_breakdown) in zip(
+                    breakdown_tabs, breakdown_tables
+                ):
+                    with tab_obj:
+                        if df_breakdown is None or df_breakdown.empty:
+                            st.info(f"{label}別のKPIを算出するためのデータが不足しています。")
+                            continue
+
+                        chart_data = df_breakdown.nlargest(10, "sales_amount")
+                        bar_chart = px.bar(
+                            chart_data,
+                            x=column,
+                            y="sales_amount",
+                            labels={column: label, "sales_amount": "売上高"},
+                            title=f"{label}別売上高 (上位{min(len(chart_data), 10)}件)",
+                        )
+                        bar_chart.update_layout(yaxis_title="円", xaxis_title=label)
+                        st.plotly_chart(bar_chart, use_container_width=True)
+
+                        display_df = df_breakdown.rename(
+                            columns={
+                                column: label,
+                                "sales_amount": "売上高",
+                                "gross_profit": "粗利",
+                                "gross_margin_rate": "粗利率",
+                                "sales_share": "売上構成比",
+                                "active_customers": "顧客数",
+                                "new_customers": "新規顧客数",
+                                "repeat_customers": "リピート顧客数",
+                                "reactivated_customers": "休眠復活顧客数",
+                                "repeat_rate": "リピート率",
+                                "churn_rate": "推定解約率",
+                                "arpu": "ARPU",
+                                "ltv": "推定LTV",
+                                "cac": "CAC",
+                                "roas": "ROAS",
+                                "marketing_cost": "広告費配分",
+                                "profit_contribution": "粗利貢献額",
+                                "profit_per_customer": "顧客あたり利益",
+                                "avg_order_value": "平均受注単価",
+                                "orders": "注文件数",
+                            }
+                        )
+                        ordered_columns = [
+                            label,
+                            "売上高",
+                            "粗利",
+                            "粗利率",
+                            "売上構成比",
+                            "顧客数",
+                            "新規顧客数",
+                            "リピート顧客数",
+                            "休眠復活顧客数",
+                            "リピート率",
+                            "推定解約率",
+                            "ARPU",
+                            "推定LTV",
+                            "CAC",
+                            "ROAS",
+                            "広告費配分",
+                            "粗利貢献額",
+                            "顧客あたり利益",
+                            "平均受注単価",
+                            "注文件数",
+                        ]
+                        existing_columns = [col for col in ordered_columns if col in display_df.columns]
+                        formatters = {
+                            "売上高": "{:,.0f}",
+                            "粗利": "{:,.0f}",
+                            "粗利率": "{:.1%}",
+                            "売上構成比": "{:.1%}",
+                            "顧客数": "{:,.0f}",
+                            "新規顧客数": "{:,.0f}",
+                            "リピート顧客数": "{:,.0f}",
+                            "休眠復活顧客数": "{:,.0f}",
+                            "リピート率": "{:.1%}",
+                            "推定解約率": "{:.1%}",
+                            "ARPU": "{:,.0f}",
+                            "推定LTV": "{:,.0f}",
+                            "CAC": "{:,.0f}",
+                            "ROAS": "{:,.2f}倍",
+                            "広告費配分": "{:,.0f}",
+                            "粗利貢献額": "{:,.0f}",
+                            "顧客あたり利益": "{:,.0f}",
+                            "平均受注単価": "{:,.0f}",
+                            "注文件数": "{:,.0f}",
+                        }
+                        st.dataframe(
+                            display_df[existing_columns].style.format({k: v for k, v in formatters.items() if k in existing_columns}),
+                            use_container_width=True,
+                        )
+
+            profit_column = (
+                "net_gross_profit"
+                if "net_gross_profit" in segmented_target_df.columns
+                else "gross_profit"
+                if "gross_profit" in segmented_target_df.columns
+                else None
+            )
+            repeat_scope_df = (
+                segmented_target_df[
+                    segmented_target_df.get("customer_segment", "既存").ne("新規")
+                ]
+                if not segmented_target_df.empty
+                else pd.DataFrame()
+            )
+            repeat_customer_count = (
+                repeat_scope_df["customer_id"].nunique()
+                if not repeat_scope_df.empty and "customer_id" in repeat_scope_df.columns
+                else 0
+            )
+            avg_repeat_sales = (
+                repeat_scope_df["sales_amount"].sum() / repeat_customer_count
+                if repeat_customer_count
+                else float("nan")
+            )
+            avg_repeat_profit = (
+                repeat_scope_df[profit_column].sum() / repeat_customer_count
+                if profit_column and repeat_customer_count
+                else float("nan")
+            )
+
             st.subheader("施策効果の簡易比較")
             with st.form("ab_test"):
                 before_rate = st.number_input("施策前リピート率(%)", min_value=0.0, max_value=100.0, value=60.0, step=1.0)
@@ -1293,6 +1470,42 @@ def main() -> None:
                     st.write(f"リピート率改善幅: {improvement:.1f}ポイント")
                     lift = (after_rate / before_rate - 1) if before_rate else np.nan
                     st.write(f"相対改善率: {lift:.2%}" if before_rate else "施策前のリピート率が0のため計算できません。")
+
+                    before_repeat_customers = before_count * (before_rate / 100.0)
+                    after_repeat_customers = after_count * (after_rate / 100.0)
+                    customer_delta = after_repeat_customers - before_repeat_customers
+
+                    revenue_uplift = (
+                        customer_delta * avg_repeat_sales
+                        if np.isfinite(avg_repeat_sales)
+                        else float("nan")
+                    )
+                    profit_uplift = (
+                        customer_delta * avg_repeat_profit
+                        if np.isfinite(avg_repeat_profit)
+                        else float("nan")
+                    )
+                    uplift_cols = st.columns(2)
+                    uplift_cols[0].metric(
+                        "想定売上増加額",
+                        f"{revenue_uplift:,.0f} 円" if np.isfinite(revenue_uplift) else "算出不可",
+                    )
+                    uplift_cols[1].metric(
+                        "想定粗利増加額",
+                        f"{profit_uplift:,.0f} 円" if np.isfinite(profit_uplift) else "算出不可",
+                    )
+
+            if np.isfinite(avg_repeat_sales):
+                profit_note = (
+                    f"、平均リピート粗利 {avg_repeat_profit:,.0f} 円"
+                    if np.isfinite(avg_repeat_profit)
+                    else ""
+                )
+                st.caption(
+                    f"リピート顧客1人あたりの平均売上 {avg_repeat_sales:,.0f} 円{profit_note} を基準に試算しています。"
+                )
+            else:
+                st.caption("リピート顧客の平均売上を算出できなかったため、金額の試算は参考値です。")
 
     with tabs[5]:
         st.subheader("データアップロード/管理")

@@ -21,6 +21,7 @@ NORMALIZED_SALES_COLUMNS = [
     "quantity",
     "sales_amount",
     "customer_id",
+    "campaign",
 ]
 
 SALES_COLUMN_ALIASES: Dict[str, List[str]] = {
@@ -32,6 +33,7 @@ SALES_COLUMN_ALIASES: Dict[str, List[str]] = {
     "quantity": ["数量", "個数", "quantity", "qty"],
     "sales_amount": ["売上", "売上高", "金額", "sales", "sales_amount", "合計金額"],
     "customer_id": ["顧客ID", "customer_id", "会員ID", "購入者ID"],
+    "campaign": ["キャンペーン", "広告施策", "campaign", "施策名"],
 }
 
 COST_COLUMN_ALIASES: Dict[str, List[str]] = {
@@ -64,6 +66,7 @@ DEFAULT_CHANNEL_FEE_RATES: Dict[str, float] = {
 
 DEFAULT_FIXED_COST = 2_500_000  # 人件費や管理費などの固定費（目安）
 DEFAULT_LOAN_REPAYMENT = 600_000  # 月次の借入返済額の仮値
+DEFAULT_DORMANCY_DAYS = 120  # 休眠判定に用いる前回購入からの日数
 
 
 @dataclass
@@ -209,6 +212,8 @@ def normalize_sales_df(df: pd.DataFrame, channel: Optional[str] = None) -> pd.Da
     normalized["quantity"] = pd.to_numeric(normalized["quantity"], errors="coerce").fillna(1)
     normalized["sales_amount"] = pd.to_numeric(normalized["sales_amount"], errors="coerce").fillna(0.0)
     normalized["customer_id"] = normalized["customer_id"].fillna("anonymous").astype(str)
+    if "campaign" in normalized.columns:
+        normalized["campaign"] = normalized["campaign"].fillna("キャンペーン未設定").astype(str)
     normalized = normalized.dropna(subset=["order_date"])
 
     # 単価を推計しておく（quantityが0の場合は回避）
@@ -796,11 +801,278 @@ def calculate_kpis(
     }
 
 
+def annotate_customer_segments(
+    df: pd.DataFrame,
+    *,
+    dormancy_days: int = DEFAULT_DORMANCY_DAYS,
+) -> pd.DataFrame:
+    """顧客ごとの購入履歴からセグメント情報を付与する。"""
+
+    if df is None:
+        return pd.DataFrame(
+            columns=[
+                "customer_segment",
+                "is_new_customer",
+                "is_reactivated_customer",
+            ]
+        )
+
+    if df.empty:
+        annotated = df.copy()
+        annotated["customer_segment"] = pd.Series(dtype="object")
+        annotated["is_new_customer"] = pd.Series(dtype="bool")
+        annotated["is_reactivated_customer"] = pd.Series(dtype="bool")
+        return annotated
+
+    required_columns = {"customer_id", "order_date"}
+    if not required_columns.issubset(df.columns):
+        annotated = df.copy()
+        annotated["customer_segment"] = "未分類"
+        annotated["is_new_customer"] = False
+        annotated["is_reactivated_customer"] = False
+        return annotated
+
+    working = df.sort_values(["customer_id", "order_date"]).copy()
+    working["first_order_date"] = working.groupby("customer_id")["order_date"].transform("min")
+    working["previous_order_date"] = working.groupby("customer_id")["order_date"].shift(1)
+    working["days_since_prev"] = (
+        working["order_date"] - working["previous_order_date"]
+    ).dt.days
+
+    working["customer_segment"] = np.select(
+        [
+            working["order_date"] == working["first_order_date"],
+            working["days_since_prev"] > dormancy_days,
+            working["days_since_prev"].notna(),
+        ],
+        ["新規", "休眠", "既存"],
+        default="既存",
+    )
+    working.loc[working["customer_segment"].isna(), "customer_segment"] = "既存"
+    working["is_new_customer"] = working["customer_segment"] == "新規"
+    working["is_reactivated_customer"] = working["customer_segment"] == "休眠"
+    return working
+
+
+def _to_valid_float(value: Optional[float]) -> float:
+    """Helper to safely convert optional values to float."""
+
+    try:
+        converted = float(value)
+    except (TypeError, ValueError):
+        return float("nan")
+    if not np.isfinite(converted):
+        return float("nan")
+    return converted
+
+
+def compute_kpi_breakdown(
+    df: pd.DataFrame,
+    dimension: str,
+    *,
+    kpi_totals: Optional[Dict[str, Optional[float]]] = None,
+    dormancy_days: int = DEFAULT_DORMANCY_DAYS,
+) -> pd.DataFrame:
+    """指定したディメンションで主要KPIを集計する。"""
+
+    if df is None:
+        return pd.DataFrame()
+
+    working = df.copy()
+    if working.empty:
+        return pd.DataFrame(
+            columns=[
+                dimension,
+                "sales_amount",
+                "gross_profit",
+                "orders",
+                "active_customers",
+                "new_customers",
+                "repeat_customers",
+                "reactivated_customers",
+                "marketing_cost",
+                "roas",
+                "cac",
+                "repeat_rate",
+                "churn_rate",
+                "ltv",
+                "arpu",
+                "gross_margin_rate",
+                "avg_order_value",
+                "sales_share",
+                "profit_contribution",
+                "profit_per_customer",
+            ]
+        )
+
+    if "customer_segment" not in working.columns:
+        working = annotate_customer_segments(working, dormancy_days=dormancy_days)
+
+    if dimension not in working.columns:
+        return pd.DataFrame()
+
+    working[dimension] = working[dimension].fillna("未分類").astype(str)
+
+    profit_column = None
+    for candidate in ["net_gross_profit", "gross_profit"]:
+        if candidate in working.columns:
+            profit_column = candidate
+            break
+
+    records: List[Dict[str, Any]] = []
+    for value, group_df in working.groupby(dimension):
+        sales = float(group_df["sales_amount"].sum()) if "sales_amount" in group_df else 0.0
+        gross_profit = (
+            float(group_df[profit_column].sum())
+            if profit_column and profit_column in group_df
+            else float("nan")
+        )
+        orders = int(group_df.shape[0])
+        active_customers = int(group_df["customer_id"].nunique()) if "customer_id" in group_df else 0
+        new_customers = (
+            int(group_df.loc[group_df["customer_segment"] == "新規", "customer_id"].nunique())
+            if "customer_segment" in group_df
+            else 0
+        )
+        reactivated_customers = (
+            int(group_df.loc[group_df["customer_segment"] == "休眠", "customer_id"].nunique())
+            if "customer_segment" in group_df
+            else 0
+        )
+        repeat_customers = max(active_customers - new_customers, 0)
+
+        records.append(
+            {
+                dimension: value,
+                "sales_amount": sales,
+                "gross_profit": gross_profit,
+                "orders": orders,
+                "active_customers": active_customers,
+                "new_customers": new_customers,
+                "repeat_customers": repeat_customers,
+                "reactivated_customers": reactivated_customers,
+                "share_basis_new": new_customers,
+                "share_basis_sales": sales,
+            }
+        )
+
+    breakdown = pd.DataFrame(records)
+    if breakdown.empty:
+        return breakdown
+
+    totals = kpi_totals or {}
+    marketing_total = _to_valid_float(totals.get("marketing_cost"))
+    cancelled_total = _to_valid_float(totals.get("cancelled_subscriptions"))
+    prev_active_total = _to_valid_float(totals.get("previous_active_customers"))
+    overall_active_total = _to_valid_float(totals.get("active_customers"))
+
+    total_sales = breakdown["sales_amount"].sum()
+    breakdown["sales_share"] = (
+        breakdown["sales_amount"] / total_sales if total_sales else float("nan")
+    )
+
+    if np.isfinite(marketing_total) and marketing_total > 0:
+        total_new = breakdown["share_basis_new"].sum()
+        if total_new > 0:
+            breakdown["marketing_cost"] = marketing_total * (
+                breakdown["share_basis_new"] / total_new
+            )
+        else:
+            total_sales_basis = breakdown["share_basis_sales"].sum()
+            if total_sales_basis > 0:
+                breakdown["marketing_cost"] = marketing_total * (
+                    breakdown["share_basis_sales"] / total_sales_basis
+                )
+            else:
+                breakdown["marketing_cost"] = marketing_total / len(breakdown)
+    else:
+        breakdown["marketing_cost"] = float("nan")
+
+    active_share_base = (
+        overall_active_total
+        if np.isfinite(overall_active_total) and overall_active_total > 0
+        else breakdown["active_customers"].sum()
+    )
+
+    if (
+        np.isfinite(cancelled_total)
+        and cancelled_total >= 0
+        and np.isfinite(prev_active_total)
+        and prev_active_total > 0
+        and active_share_base > 0
+    ):
+        active_share = breakdown["active_customers"] / active_share_base
+        breakdown["estimated_cancelled"] = cancelled_total * active_share
+        prev_active_alloc = prev_active_total * active_share
+        breakdown["churn_rate"] = np.where(
+            prev_active_alloc > 0,
+            breakdown["estimated_cancelled"] / prev_active_alloc,
+            float("nan"),
+        )
+    else:
+        breakdown["churn_rate"] = float("nan")
+
+    breakdown["gross_margin_rate"] = np.where(
+        breakdown["sales_amount"] != 0,
+        breakdown["gross_profit"] / breakdown["sales_amount"],
+        float("nan"),
+    )
+    breakdown["avg_order_value"] = np.where(
+        breakdown["orders"] != 0,
+        breakdown["sales_amount"] / breakdown["orders"],
+        float("nan"),
+    )
+    breakdown["arpu"] = np.where(
+        breakdown["active_customers"] != 0,
+        breakdown["sales_amount"] / breakdown["active_customers"],
+        float("nan"),
+    )
+    breakdown["repeat_rate"] = np.where(
+        breakdown["active_customers"] != 0,
+        breakdown["repeat_customers"] / breakdown["active_customers"],
+        float("nan"),
+    )
+    breakdown["ltv"] = np.where(
+        breakdown["new_customers"] > 0,
+        breakdown["gross_profit"] / breakdown["new_customers"],
+        np.where(
+            breakdown["active_customers"] > 0,
+            breakdown["gross_profit"] / breakdown["active_customers"],
+            float("nan"),
+        ),
+    )
+    breakdown["roas"] = np.where(
+        breakdown["marketing_cost"] > 0,
+        breakdown["sales_amount"] / breakdown["marketing_cost"],
+        float("nan"),
+    )
+    breakdown["cac"] = np.where(
+        breakdown["new_customers"] > 0,
+        breakdown["marketing_cost"] / breakdown["new_customers"],
+        float("nan"),
+    )
+    breakdown["profit_contribution"] = breakdown["gross_profit"] - breakdown["marketing_cost"]
+    breakdown["profit_per_customer"] = np.where(
+        breakdown["active_customers"] > 0,
+        breakdown["profit_contribution"] / breakdown["active_customers"],
+        float("nan"),
+    )
+
+    for col in ["share_basis_new", "share_basis_sales", "estimated_cancelled"]:
+        if col in breakdown.columns:
+            breakdown.drop(columns=col, inplace=True)
+
+    breakdown.sort_values("sales_amount", ascending=False, inplace=True)
+    breakdown.reset_index(drop=True, inplace=True)
+    return breakdown
+
+
 def generate_sample_sales_data(seed: int = 42) -> pd.DataFrame:
     """分析用のサンプル売上データを生成する。"""
     rng = np.random.default_rng(seed)
     months = pd.period_range("2023-01", periods=24, freq="M")
     channels = ["自社サイト", "楽天市場", "Amazon", "Yahoo!ショッピング"]
+    campaigns = ["LINE広告", "Instagram広告", "リスティング", "定期フォロー", "紹介キャンペーン"]
 
     sample_products = [
         {"code": "FKD01", "name": "低分子フコイダンドリンク", "category": "フコイダン", "price": 11800, "cost_rate": 0.24},
@@ -830,6 +1102,7 @@ def generate_sample_sales_data(seed: int = 42) -> pd.DataFrame:
                 sales_amount = quantity * product["price"]
                 customer_count = max(1, int(quantity * 0.6))
                 for i in range(max(1, customer_count // 3)):
+                    campaign = campaigns[rng.integers(0, len(campaigns))]
                     records.append(
                         {
                             "order_date": month.to_timestamp("M") - pd.Timedelta(days=rng.integers(0, 27)),
@@ -840,6 +1113,7 @@ def generate_sample_sales_data(seed: int = 42) -> pd.DataFrame:
                             "quantity": quantity / max(1, customer_count // 3),
                             "sales_amount": sales_amount / max(1, customer_count // 3),
                             "customer_id": f"{channel[:2]}-{month.strftime('%Y%m')}-{rng.integers(1000, 9999)}",
+                            "campaign": campaign,
                         }
                     )
 
