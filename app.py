@@ -682,22 +682,29 @@ def main() -> None:
                     "prev_year_sales": "前年同期間売上",
                 }
             )
-            sales_chart = px.line(
-                sales_chart_source.melt(
-                    id_vars=["期間開始", "期間"], var_name="指標", value_name="金額"
-                ),
-                x="期間開始",
-                y="金額",
-                color="指標",
-                markers=True,
-                hover_data={"期間": True},
-            )
-            sales_chart.update_layout(
-                yaxis_title="円",
-                xaxis_title=f"{selected_granularity_label}開始日",
-                legend=dict(title="", itemclick="toggleothers", itemdoubleclick="toggle"),
-            )
-            st.plotly_chart(sales_chart, use_container_width=True)
+            sales_value_columns = [
+                col for col in ["現状売上", "前年同期間売上"] if col in sales_chart_source.columns
+            ]
+            if sales_value_columns:
+                sales_chart = px.line(
+                    sales_chart_source.melt(
+                        id_vars=["期間開始", "期間"],
+                        value_vars=sales_value_columns,
+                        var_name="指標",
+                        value_name="金額",
+                    ),
+                    x="期間開始",
+                    y="金額",
+                    color="指標",
+                    markers=True,
+                    hover_data={"期間": True},
+                )
+                sales_chart.update_layout(
+                    yaxis_title="円",
+                    xaxis_title=f"{selected_granularity_label}開始日",
+                    legend=dict(title="", itemclick="toggleothers", itemdoubleclick="toggle"),
+                )
+                st.plotly_chart(sales_chart, use_container_width=True)
 
             gross_chart_source = latest_periods.rename(
                 columns={
