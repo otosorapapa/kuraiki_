@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 # TODO: Streamlit UIコンポーネントを使ってダッシュボードを構築
+import html
 import io
 from datetime import date, datetime
 from typing import Any, Dict, List, Optional, Tuple
@@ -42,7 +43,6 @@ from data_processing import (
 st.set_page_config(
     page_title="くらしいきいき社 計数管理ダッシュボード",
     layout="wide",
-    page_icon="📊",
 )
 
 
@@ -76,6 +76,320 @@ TUTORIAL_INDEX: List[Dict[str, Any]] = [
     }
 ]
 
+
+PRIMARY_NAVY = "#0B1F33"
+PRIMARY_NAVY_ALT = "#123A66"
+SECONDARY_SLATE = "#5B6B82"
+SECONDARY_SKY = "#E6ECF4"
+NEUTRAL_STEEL = "#8FA5C9"
+ACCENT_BLUE = "#2A86FF"
+ACCENT_ORANGE = "#FF7A45"
+MCKINSEY_FONT_STACK = (
+    "'Noto Sans JP', 'Hiragino Sans', 'Segoe UI', 'Helvetica Neue', sans-serif"
+)
+PLOTLY_COLORWAY = [ACCENT_BLUE, SECONDARY_SLATE, ACCENT_ORANGE, PRIMARY_NAVY_ALT, NEUTRAL_STEEL]
+
+
+def apply_chart_theme(fig):
+    """マッキンゼー風の配色と余白に合わせてPlotly図を整える。"""
+
+    fig.update_layout(
+        font=dict(family=MCKINSEY_FONT_STACK, color="#0F1E2E"),
+        title=dict(font=dict(size=18, color="#0F1E2E", family=MCKINSEY_FONT_STACK)),
+        legend=dict(bgcolor="rgba(0,0,0,0)", font=dict(size=12)),
+        plot_bgcolor="rgba(0,0,0,0)",
+        paper_bgcolor="rgba(0,0,0,0)",
+        margin=dict(l=48, r=36, t=60, b=48),
+        hoverlabel=dict(font=dict(family=MCKINSEY_FONT_STACK)),
+        colorway=PLOTLY_COLORWAY,
+    )
+    fig.update_xaxes(showgrid=True, gridcolor="rgba(11,31,51,0.08)")
+    fig.update_yaxes(showgrid=True, gridcolor="rgba(11,31,51,0.08)")
+    return fig
+
+
+def inject_mckinsey_style() -> None:
+    """60-30-10のカラーパレットとタイポグラフィをアプリ全体に適用する。"""
+
+    st.markdown(
+        f"""
+        <style>
+        :root {{
+            --color-primary: {PRIMARY_NAVY};
+            --color-primary-alt: {PRIMARY_NAVY_ALT};
+            --color-accent: {ACCENT_BLUE};
+            --color-alert: {ACCENT_ORANGE};
+            --secondary-surface: {SECONDARY_SKY};
+            --surface-elevated: #ffffff;
+            --ink-base: #1A2433;
+            --ink-strong: #0F1E2E;
+            --ink-subtle: #5B6A82;
+        }}
+
+        html, body {{
+            font-family: {MCKINSEY_FONT_STACK};
+            color: var(--ink-base);
+            line-height: 1.45;
+            background-color: #f4f7fb;
+        }}
+
+        .stApp {{
+            background: linear-gradient(180deg, #f7f9fc 0%, #eef2f7 100%);
+            color: var(--ink-base);
+            font-family: {MCKINSEY_FONT_STACK};
+        }}
+
+        p, li, span {{
+            font-size: 15px;
+            line-height: 1.45;
+        }}
+
+        h1, h2, h3, h4 {{
+            font-weight: 700;
+            letter-spacing: 0.02em;
+            line-height: 1.35;
+            color: var(--ink-strong);
+        }}
+
+        h2 {{
+            margin-top: 2rem;
+        }}
+
+        h3 {{
+            margin-top: 1.5rem;
+        }}
+
+        section[data-testid="stSidebar"] {{
+            background: linear-gradient(180deg, var(--color-primary) 0%, var(--color-primary-alt) 100%);
+            color: #f3f6fa;
+        }}
+
+        section[data-testid="stSidebar"] * {{
+            color: #f3f6fa;
+        }}
+
+        section[data-testid="stSidebar"] input,
+        section[data-testid="stSidebar"] select,
+        section[data-testid="stSidebar"] textarea {{
+            background: rgba(255,255,255,0.08);
+            border-radius: 0.6rem;
+            border: 1px solid rgba(255,255,255,0.2);
+            color: #f7fbff;
+        }}
+
+        section[data-testid="stSidebar"] input::placeholder,
+        section[data-testid="stSidebar"] textarea::placeholder {{
+            color: rgba(243,246,250,0.7);
+        }}
+
+        section[data-testid="stSidebar"] .stButton>button,
+        section[data-testid="stSidebar"] .stDownloadButton>button {{
+            border-radius: 0.6rem;
+            border: 1px solid rgba(255,255,255,0.35);
+            background: rgba(255,255,255,0.1);
+            color: #f3f6fa;
+        }}
+
+        .hero-panel {{
+            background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-alt) 100%);
+            color: #f5f9ff;
+            padding: 2.2rem 2.6rem;
+            border-radius: 1.25rem;
+            margin-bottom: 1.5rem;
+            box-shadow: 0 22px 55px rgba(11,31,51,0.28);
+        }}
+
+        .hero-title {{
+            font-size: 1.9rem;
+            margin-bottom: 0.6rem;
+        }}
+
+        .hero-subtitle {{
+            font-size: 1.05rem;
+            max-width: 760px;
+            opacity: 0.92;
+        }}
+
+        .hero-meta {{
+            margin-top: 1.2rem;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.75rem;
+        }}
+
+        .hero-badge {{
+            display: inline-flex;
+            align-items: center;
+            padding: 0.35rem 0.85rem;
+            border-radius: 999px;
+            background: rgba(255,255,255,0.18);
+            font-size: 0.9rem;
+            letter-spacing: 0.02em;
+        }}
+
+        .hero-badge--accent {{
+            background: var(--color-accent);
+            color: #ffffff;
+        }}
+
+        .hero-badge--alert {{
+            background: var(--color-alert);
+            color: #ffffff;
+        }}
+
+        .surface-card {{
+            background: var(--surface-elevated);
+            border-radius: 1rem;
+            padding: 1.4rem 1.6rem;
+            box-shadow: 0 16px 42px rgba(15,30,46,0.08);
+            margin-bottom: 1.6rem;
+        }}
+
+        .main-nav-block div[role="radiogroup"] {{
+            gap: 0.75rem;
+            flex-wrap: wrap;
+        }}
+
+        .main-nav-block div[role="radiogroup"] label {{
+            border-radius: 999px;
+            padding: 0.35rem 0.9rem;
+            border: 1px solid rgba(15,30,46,0.08);
+            background: var(--secondary-surface);
+            font-weight: 600;
+            color: var(--ink-strong);
+        }}
+
+        .main-nav-block div[role="radiogroup"] label:hover {{
+            border-color: rgba(42,134,255,0.45);
+        }}
+
+        .breadcrumb-trail {{
+            color: var(--ink-subtle);
+            margin-bottom: 1.2rem;
+            font-size: 0.9rem;
+        }}
+
+        .alert-banner {{
+            border-radius: 0.95rem;
+            padding: 1.1rem 1.3rem;
+            margin-bottom: 1.6rem;
+            border: 1px solid transparent;
+        }}
+
+        .alert-banner--warning {{
+            background: rgba(255,122,69,0.12);
+            border-color: rgba(255,122,69,0.4);
+            color: var(--color-alert);
+        }}
+
+        .alert-banner--ok {{
+            background: rgba(42,134,255,0.12);
+            border-color: rgba(42,134,255,0.35);
+            color: var(--color-accent);
+        }}
+
+        .alert-banner__title {{
+            font-weight: 700;
+            margin-bottom: 0.4rem;
+        }}
+
+        .alert-banner ul {{
+            margin: 0.2rem 0 0;
+            padding-left: 1.2rem;
+        }}
+
+        .search-card {{
+            padding-bottom: 1rem;
+        }}
+
+        .search-card .search-title {{
+            font-weight: 700;
+            font-size: 1.1rem;
+            color: var(--ink-strong);
+        }}
+
+        .search-card div[data-testid="stTextInput"] {{
+            margin-top: 0.6rem;
+        }}
+
+        .search-card input {{
+            border-radius: 0.75rem;
+            border: 1px solid rgba(11,31,51,0.15);
+            padding: 0.6rem 0.9rem;
+            background: #ffffff;
+        }}
+
+        .search-card input:focus {{
+            border-color: var(--color-accent);
+            box-shadow: 0 0 0 2px rgba(42,134,255,0.2);
+        }}
+
+        hr {{
+            border-color: #d8e1ef;
+        }}
+
+        div[data-testid="stMetric"] {{
+            background: var(--surface-elevated);
+            border-radius: 0.9rem;
+            padding: 1.1rem;
+            border: 1px solid rgba(11,31,51,0.08);
+            box-shadow: 0 12px 30px rgba(15,30,46,0.05);
+        }}
+
+        div[data-testid="stMetricLabel"] {{
+            color: var(--ink-subtle);
+            font-weight: 600;
+        }}
+
+        div[data-testid="stMetricValue"] {{
+            color: var(--ink-strong);
+            font-weight: 700;
+        }}
+
+        div[data-testid="stMetricDelta"] {{
+            color: var(--color-accent);
+            font-weight: 600;
+        }}
+
+        .status-pill {{
+            display: inline-flex;
+            align-items: center;
+            padding: 0.25rem 0.6rem;
+            border-radius: 999px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            letter-spacing: 0.02em;
+            margin-bottom: 0.35rem;
+        }}
+
+        .status-pill--ok {{
+            background: rgba(42,134,255,0.28);
+            color: #e8f1ff;
+        }}
+
+        .status-pill--warning {{
+            background: rgba(255,170,0,0.28);
+            color: #fff2d0;
+        }}
+
+        .status-pill--error {{
+            background: rgba(255,122,69,0.28);
+            color: #ffe1d4;
+        }}
+
+        section[data-testid="stSidebar"] .sidebar-meta {{
+            font-size: 0.8rem;
+            opacity: 0.82;
+            margin-bottom: 0.75rem;
+        }}
+
+        .stAlert>div {{
+            border-radius: 0.95rem;
+        }}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
 def load_data(
     use_sample: bool,
@@ -438,11 +752,91 @@ def render_breadcrumb(main_label: str, section_label: Optional[str]) -> None:
     parts = [main_label]
     if section_label and section_label != main_label:
         parts.append(section_label)
-    breadcrumb = " > ".join(parts)
+    breadcrumb = " / ".join(parts)
     st.markdown(
-        f"<div class='breadcrumb-trail'>🧭 {breadcrumb}</div>",
+        f"<div class='breadcrumb-trail'>{html.escape(breadcrumb)}</div>",
         unsafe_allow_html=True,
     )
+
+
+def render_hero_section(
+    latest_label: str, period_label: str, record_count: int, alert_count: int
+) -> None:
+    """ヒーローエリアをマッキンゼー風に表示する。"""
+
+    if alert_count > 0:
+        status_text = f"要確認: {alert_count}件"
+        status_class = "hero-badge hero-badge--alert"
+    else:
+        status_text = "主要指標は安定しています"
+        status_class = "hero-badge hero-badge--accent"
+
+    st.markdown(
+        """
+        <div class="hero-panel">
+            <div class="hero-title">くらしいきいき社 計数管理ダッシュボード</div>
+            <p class="hero-subtitle">高粗利商材のパフォーマンスを即座に把握し、迅速な意思決定を支援します。</p>
+            <div class="hero-meta">
+                <span class="hero-badge">最新データ: {latest}</span>
+                <span class="hero-badge">表示期間: {period}</span>
+                <span class="hero-badge">対象レコード: {records}</span>
+                <span class="{status_class}">{status}</span>
+            </div>
+        </div>
+        """.format(
+            latest=html.escape(latest_label or "-"),
+            period=html.escape(period_label or "-"),
+            records=f"{record_count:,} 件",
+            status_class=status_class,
+            status=html.escape(status_text),
+        ),
+        unsafe_allow_html=True,
+    )
+
+
+def render_status_banner(alerts: Optional[List[str]]) -> None:
+    """アラート状況をアクセントカラーで表示する。"""
+
+    if alerts:
+        items = "".join(f"<li>{html.escape(msg)}</li>" for msg in alerts)
+        st.markdown(
+            f"""
+            <div class="alert-banner alert-banner--warning">
+                <div class="alert-banner__title">警告が検知されました</div>
+                <ul>{items}</ul>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(
+            """
+            <div class="alert-banner alert-banner--ok">
+                主要指標は設定した閾値内に収まっています。
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+
+def render_search_bar() -> str:
+    """ヒーロー直下のクイック検索をカードスタイルで表示する。"""
+
+    st.markdown(
+        """
+        <div class="surface-card search-card"><div class="search-title">クイック検索</div>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.markdown("</div>", unsafe_allow_html=True)
+    query = st.text_input(
+        "クイック検索",
+        placeholder="商品名、チャネル、チュートリアルを検索",
+        key="global_search",
+        label_visibility="collapsed",
+    )
+    st.markdown("</div>", unsafe_allow_html=True)
+    return query
 
 
 def render_global_search_results(query: str, merged_df: pd.DataFrame) -> None:
@@ -453,7 +847,7 @@ def render_global_search_results(query: str, merged_df: pd.DataFrame) -> None:
         return
 
     query_lower = query.lower()
-    st.markdown("### 🔍 クイック検索結果")
+    st.markdown("### クイック検索結果")
 
     if merged_df is not None and not merged_df.empty:
         searchable = merged_df.copy()
@@ -515,13 +909,12 @@ def render_global_search_results(query: str, merged_df: pd.DataFrame) -> None:
         or any(query_lower in keyword.lower() for keyword in tutorial.get("keywords", []))
     ]
     if matches:
-        st.markdown("**📘 チュートリアル**")
+        st.markdown("**関連チュートリアル**")
         for tutorial in matches:
             st.markdown(f"- [{tutorial['title']}]({tutorial['path']})")
 
 def main() -> None:
-    st.title("📊 くらしいきいき社 計数管理ダッシュボード")
-    st.caption("高粗利商材のパフォーマンスを即座に把握し、迅速な意思決定を支援します。")
+    inject_mckinsey_style()
 
     st.sidebar.header("データ設定")
     use_sample_data = st.sidebar.checkbox("サンプルデータを使用", value=True)
@@ -595,13 +988,21 @@ def main() -> None:
                 latest_df = st.session_state["api_sales_data"].get(channel)
                 record_count = len(latest_df) if isinstance(latest_df, pd.DataFrame) else 0
                 if status_report and status_report.has_errors():
-                    status_icon = "❌"
+                    status_level = "error"
+                    status_label = "ERROR"
                 elif status_report and status_report.has_warnings():
-                    status_icon = "⚠️"
+                    status_level = "warning"
+                    status_label = "WARNING"
                 else:
-                    status_icon = "✅"
-                st.caption(
-                    f"{status_icon} 最終取得: {last_fetch.strftime('%Y-%m-%d %H:%M')} / {record_count:,} 件"
+                    status_level = "ok"
+                    status_label = "OK"
+                st.markdown(
+                    f"<div class='status-pill status-pill--{status_level}'>状態: {status_label}</div>",
+                    unsafe_allow_html=True,
+                )
+                st.markdown(
+                    f"<div class='sidebar-meta'>最終取得: {last_fetch.strftime('%Y-%m-%d %H:%M')} / {record_count:,} 件</div>",
+                    unsafe_allow_html=True,
                 )
 
         if st.button("自動取得データをクリア", key="clear_api_sales"):
@@ -722,60 +1123,39 @@ def main() -> None:
     channel_share_df = compute_channel_share(merged_df)
     category_share_df = compute_category_share(merged_df)
 
-    st.markdown(
-        """
-        <style>
-        .main-nav .stRadio > div {
-            flex-direction: row;
-            gap: 0.5rem;
-            flex-wrap: wrap;
-        }
-        .breadcrumb-trail {
-            color: #5f6368;
-            margin-bottom: 0.75rem;
-            font-size: 0.95rem;
-        }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
+    latest_timestamp = None
+    if not merged_df.empty and "order_date" in merged_df.columns:
+        latest_timestamp = merged_df["order_date"].max()
+    if latest_timestamp is not None and pd.notna(latest_timestamp):
+        if isinstance(latest_timestamp, pd.Timestamp):
+            latest_label = latest_timestamp.strftime("%Y-%m-%d")
+        else:
+            latest_label = str(latest_timestamp)
+    else:
+        latest_label = "-"
 
-    top_controls = st.container()
-    with top_controls:
-        search_col, status_col = st.columns([3, 1])
-        with search_col:
-            search_query = st.text_input(
-                "🔍 クイック検索",
-                placeholder="商品名、チャネル、チュートリアルを検索",
-                key="global_search",
-            )
-        with status_col:
-            latest_timestamp = None
-            if not merged_df.empty and "order_date" in merged_df.columns:
-                latest_timestamp = merged_df["order_date"].max()
-            if latest_timestamp is not None and pd.notna(latest_timestamp):
-                if isinstance(latest_timestamp, pd.Timestamp):
-                    latest_label = latest_timestamp.strftime("%Y-%m-%d")
-                else:
-                    latest_label = str(latest_timestamp)
-            else:
-                latest_label = "-"
-            status_col.metric("最新データ", latest_label)
-            if isinstance(date_range, (tuple, list)) and len(date_range) == 2:
-                status_col.caption(f"表示期間: {date_range[0]} 〜 {date_range[1]}")
+    range_label = "-"
+    if isinstance(date_range, (tuple, list)) and len(date_range) == 2:
+        start_value, end_value = date_range
+        start_label = start_value.strftime("%Y-%m-%d") if hasattr(start_value, "strftime") else str(start_value)
+        end_label = end_value.strftime("%Y-%m-%d") if hasattr(end_value, "strftime") else str(end_value)
+        range_label = f"{start_label} 〜 {end_label}"
+
+    total_records = int(len(merged_df)) if not merged_df.empty else 0
+    alert_count = len(alerts) if alerts else 0
+
+    render_hero_section(latest_label, range_label, total_records, alert_count)
+
+    search_query = render_search_bar()
 
     with st.container():
-        st.markdown("<div class='main-nav'>", unsafe_allow_html=True)
+        st.markdown("<div class='surface-card main-nav-block'>", unsafe_allow_html=True)
         selected_main, selected_section = render_navigation()
         st.markdown("</div>", unsafe_allow_html=True)
 
     render_breadcrumb(selected_main, selected_section)
 
-    if alerts:
-        for msg in alerts:
-            st.error(f"⚠️ {msg}")
-    else:
-        st.success("主要指標は設定した閾値内に収まっています。")
+    render_status_banner(alerts)
 
     if search_query:
         render_global_search_results(search_query, merged_df)
@@ -892,7 +1272,9 @@ def main() -> None:
                     color="指標",
                     markers=True,
                     hover_data={"期間": True},
+                    color_discrete_sequence=[ACCENT_BLUE, SECONDARY_SLATE],
                 )
+                sales_chart = apply_chart_theme(sales_chart)
                 sales_chart.update_layout(
                     yaxis_title="円",
                     xaxis_title=f"{selected_granularity_label}開始日",
@@ -913,7 +1295,9 @@ def main() -> None:
                 y="粗利",
                 markers=True,
                 hover_data={"期間": True},
+                color_discrete_sequence=[ACCENT_BLUE],
             )
+            gross_chart = apply_chart_theme(gross_chart)
             gross_chart.update_layout(
                 yaxis_title="円",
                 xaxis_title=f"{selected_granularity_label}開始日",
@@ -931,7 +1315,9 @@ def main() -> None:
                 names="channel",
                 values="sales_amount",
                 title="チャネル別売上構成比",
+                color_discrete_sequence=PLOTLY_COLORWAY,
             )
+            channel_chart = apply_chart_theme(channel_chart)
             chart_cols[0].plotly_chart(channel_chart, use_container_width=True)
         if not category_share_df.empty:
             category_chart = px.pie(
@@ -939,7 +1325,9 @@ def main() -> None:
                 names="category",
                 values="sales_amount",
                 title="カテゴリ別売上構成比",
+                color_discrete_sequence=PLOTLY_COLORWAY,
             )
+            category_chart = apply_chart_theme(category_chart)
             chart_cols[1].plotly_chart(category_chart, use_container_width=True)
 
         if not period_summary.empty:
@@ -1021,7 +1409,9 @@ def main() -> None:
                     "period_start": f"{selected_granularity_label}開始日",
                 },
                 custom_data=["channel", "period_label"],
+                color_discrete_sequence=PLOTLY_COLORWAY,
             )
+            channel_chart = apply_chart_theme(channel_chart)
             channel_chart.update_layout(
                 clickmode="event+select",
                 legend=dict(title="", itemclick="toggleothers", itemdoubleclick="toggle"),
@@ -1070,7 +1460,9 @@ def main() -> None:
                     "period_start": f"{selected_granularity_label}開始日",
                 },
                 custom_data=["category", "period_label"],
+                color_discrete_sequence=PLOTLY_COLORWAY,
             )
+            category_bar = apply_chart_theme(category_bar)
             category_bar.update_layout(
                 barmode="stack",
                 clickmode="event+select",
@@ -1181,7 +1573,9 @@ def main() -> None:
                 y="net_gross_profit",
                 labels={"channel": "チャネル", "net_gross_profit": "粗利"},
                 title="チャネル別粗利比較",
+                color_discrete_sequence=[ACCENT_BLUE],
             )
+            channel_profit_chart = apply_chart_theme(channel_profit_chart)
             channel_profit_chart.update_layout(
                 legend=dict(title=""),
                 xaxis_title="チャネル",
@@ -1204,10 +1598,12 @@ def main() -> None:
                 orientation="h",
                 labels={"net_gross_profit": "粗利", "product_name": "商品名"},
                 custom_data=["product_code", "product_name"],
+                color_discrete_sequence=[ACCENT_BLUE],
             )
+            top_products_chart = apply_chart_theme(top_products_chart)
             highlight_code = st.session_state.get("profit_focus_product")
             bar_colors = [
-                "#d62728" if code == highlight_code else "#1f77b4"
+                ACCENT_ORANGE if code == highlight_code else ACCENT_BLUE
                 for code in top_products_sorted["product_code"]
             ]
             top_products_chart.update_traces(
@@ -1287,8 +1683,14 @@ def main() -> None:
                         y="net_gross_profit",
                         labels={"channel": "チャネル", "net_gross_profit": "粗利"},
                         title="選択商品のチャネル別粗利",
+                        color_discrete_sequence=[ACCENT_BLUE],
                     )
-                    breakdown_chart.update_layout(legend=dict(title=""))
+                    breakdown_chart = apply_chart_theme(breakdown_chart)
+                    breakdown_chart.update_layout(
+                        legend=dict(title=""),
+                        xaxis_title="チャネル",
+                        yaxis_title="粗利",
+                    )
                     st.plotly_chart(breakdown_chart, use_container_width=True)
                     st.dataframe(
                         channel_breakdown.rename(
@@ -1333,7 +1735,9 @@ def main() -> None:
                             "net_gross_profit": "粗利",
                         },
                         hover_data={"period_label": True},
+                        color_discrete_sequence=[ACCENT_BLUE],
                     )
+                    profit_trend_chart = apply_chart_theme(profit_trend_chart)
                     profit_trend_chart.update_layout(title="選択商品の粗利推移")
                     st.plotly_chart(profit_trend_chart, use_container_width=True)
                     st.dataframe(
@@ -1403,7 +1807,9 @@ def main() -> None:
                 y="cash_balance",
                 markers=True,
                 title="資金残高予測",
+                color_discrete_sequence=[ACCENT_BLUE],
             )
+            cash_chart = apply_chart_theme(cash_chart)
             cash_chart.update_layout(yaxis_title="円", xaxis_title="月")
             st.plotly_chart(cash_chart, use_container_width=True)
             st.dataframe(cash_forecast)
@@ -1426,7 +1832,9 @@ def main() -> None:
                     y="ltv",
                     markers=True,
                     title="LTV推移",
+                    color_discrete_sequence=[ACCENT_BLUE],
                 )
+                fig = apply_chart_theme(fig)
                 st.plotly_chart(fig, use_container_width=True)
             with kpi_charts[1]:
                 fig = px.line(
@@ -1435,7 +1843,9 @@ def main() -> None:
                     y="cac",
                     markers=True,
                     title="CAC推移",
+                    color_discrete_sequence=[ACCENT_BLUE],
                 )
+                fig = apply_chart_theme(fig)
                 st.plotly_chart(fig, use_container_width=True)
             with kpi_charts[2]:
                 fig = px.bar(
@@ -1443,7 +1853,9 @@ def main() -> None:
                     x="month_str",
                     y="repeat_rate",
                     title="リピート率推移",
+                    color_discrete_sequence=[ACCENT_BLUE],
                 )
+                fig = apply_chart_theme(fig)
                 st.plotly_chart(fig, use_container_width=True)
             with kpi_charts[3]:
                 fig = px.bar(
@@ -1451,7 +1863,9 @@ def main() -> None:
                     x="month_str",
                     y="churn_rate",
                     title="チャーン率推移",
+                    color_discrete_sequence=[ACCENT_ORANGE],
                 )
+                fig = apply_chart_theme(fig)
                 st.plotly_chart(fig, use_container_width=True)
             with kpi_charts[4]:
                 fig = px.line(
@@ -1460,7 +1874,9 @@ def main() -> None:
                     y="roas",
                     markers=True,
                     title="ROAS推移",
+                    color_discrete_sequence=[ACCENT_BLUE],
                 )
+                fig = apply_chart_theme(fig)
                 st.plotly_chart(fig, use_container_width=True)
 
             st.dataframe(
@@ -1546,7 +1962,9 @@ def main() -> None:
                             y="sales_amount",
                             labels={column: label, "sales_amount": "売上高"},
                             title=f"{label}別売上高 (上位{min(len(chart_data), 10)}件)",
+                            color_discrete_sequence=PLOTLY_COLORWAY,
                         )
+                        bar_chart = apply_chart_theme(bar_chart)
                         bar_chart.update_layout(yaxis_title="円", xaxis_title=label)
                         st.plotly_chart(bar_chart, use_container_width=True)
 
