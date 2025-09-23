@@ -4,13 +4,14 @@ from __future__ import annotations
 # TODO: Streamlit UIコンポーネントを使ってダッシュボードを構築
 import io
 from datetime import date, datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import parse_qsl
 
 import numpy as np
 import pandas as pd
 import plotly.express as px
 import streamlit as st
+from streamlit_plotly_events import plotly_events
 
 from data_processing import (
     DEFAULT_FIXED_COST,
@@ -41,6 +42,21 @@ st.set_page_config(
     layout="wide",
     page_icon="📊",
 )
+
+
+PERIOD_FREQ_OPTIONS: List[Tuple[str, str]] = [
+    ("月次", "M"),
+    ("週次", "W-MON"),
+    ("四半期", "Q"),
+    ("年次", "Y"),
+]
+
+PERIOD_YOY_LAG: Dict[str, int] = {
+    "M": 12,
+    "W-MON": 52,
+    "Q": 4,
+    "Y": 1,
+}
 
 
 def load_data(
@@ -107,7 +123,12 @@ def load_data(
     }
 
 
-def apply_filters(sales_df: pd.DataFrame, channels: List[str], date_range: List[date]) -> pd.DataFrame:
+def apply_filters(
+    sales_df: pd.DataFrame,
+    channels: List[str],
+    date_range: List[date],
+    categories: Optional[List[str]] = None,
+) -> pd.DataFrame:
     """サイドバーで選択した条件をもとに売上データを抽出する。"""
     if sales_df.empty:
         return sales_df
@@ -115,6 +136,8 @@ def apply_filters(sales_df: pd.DataFrame, channels: List[str], date_range: List[
     filtered = sales_df.copy()
     if channels:
         filtered = filtered[filtered["channel"].isin(channels)]
+    if categories:
+        filtered = filtered[filtered["category"].isin(categories)]
     if date_range:
         start_date = pd.to_datetime(date_range[0]) if date_range[0] else filtered["order_date"].min()
         end_date = pd.to_datetime(date_range[1]) if date_range[1] else filtered["order_date"].max()
@@ -129,6 +152,227 @@ def download_button_from_df(label: str, df: pd.DataFrame, filename: str) -> None
     buffer = io.StringIO()
     df.to_csv(buffer, index=False)
     st.download_button(label, buffer.getvalue(), file_name=filename, mime="text/csv")
+
+
+def _nanmean(series: pd.Series) -> float:
+    """np.nanmeanの警告を避けつつ平均値を計算する。"""
+
+    if series is None:
+        return float("nan")
+    clean = pd.to_numeric(series, errors="coerce").dropna()
+    if clean.empty:
+        return float("nan")
+    return float(clean.mean())
+
+
+def format_period_label(period: pd.Period, freq: str) -> str:
+    """表示用の期間ラベルを生成する。"""
+
+    if freq in {"M", "Q", "Y"}:
+        return str(period)
+    start = period.start_time
+    end = period.end_time
+    if freq.startswith("W"):
+        return f"{start.strftime('%Y-%m-%d')}週 ({start.strftime('%m/%d')}〜{end.strftime('%m/%d')})"
+    return f"{start.strftime('%Y-%m-%d')}〜{end.strftime('%Y-%m-%d')}"
+
+
+def summarize_sales_by_period(df: pd.DataFrame, freq: str) -> pd.DataFrame:
+    """売上と粗利を指定粒度で集計する。"""
+
+    columns = [
+        "period",
+        "period_start",
+        "period_end",
+        "period_label",
+        "sales_amount",
+        "gross_profit",
+        "net_gross_profit",
+        "prev_period_sales",
+        "sales_mom",
+        "prev_year_sales",
+        "sales_yoy",
+        "prev_period_gross",
+        "gross_mom",
+        "prev_year_gross",
+        "gross_yoy",
+    ]
+    if df.empty:
+        return pd.DataFrame(columns=columns)
+
+    working = df.copy()
+    working["period"] = working["order_date"].dt.to_period(freq)
+    summary = (
+        working.groupby("period")[["sales_amount", "gross_profit", "net_gross_profit"]]
+        .sum()
+        .reset_index()
+        .sort_values("period")
+    )
+    summary["period_start"] = summary["period"].dt.to_timestamp()
+    summary["period_end"] = summary["period"].dt.to_timestamp(how="end")
+    summary["period_label"] = summary["period"].apply(lambda p: format_period_label(p, freq))
+
+    summary["prev_period_sales"] = summary["sales_amount"].shift(1)
+    summary["sales_mom"] = np.where(
+        (summary["prev_period_sales"].notna()) & (summary["prev_period_sales"] != 0),
+        (summary["sales_amount"] - summary["prev_period_sales"]) / summary["prev_period_sales"],
+        np.nan,
+    )
+
+    yoy_lag = PERIOD_YOY_LAG.get(freq, 0)
+    if yoy_lag:
+        summary["prev_year_sales"] = summary["sales_amount"].shift(yoy_lag)
+        summary["sales_yoy"] = np.where(
+            (summary["prev_year_sales"].notna()) & (summary["prev_year_sales"] != 0),
+            (summary["sales_amount"] - summary["prev_year_sales"]) / summary["prev_year_sales"],
+            np.nan,
+        )
+    else:
+        summary["prev_year_sales"] = np.nan
+        summary["sales_yoy"] = np.nan
+
+    summary["prev_period_gross"] = summary["net_gross_profit"].shift(1)
+    summary["gross_mom"] = np.where(
+        (summary["prev_period_gross"].notna()) & (summary["prev_period_gross"] != 0),
+        (summary["net_gross_profit"] - summary["prev_period_gross"]) / summary["prev_period_gross"],
+        np.nan,
+    )
+
+    if yoy_lag:
+        summary["prev_year_gross"] = summary["net_gross_profit"].shift(yoy_lag)
+        summary["gross_yoy"] = np.where(
+            (summary["prev_year_gross"].notna()) & (summary["prev_year_gross"] != 0),
+            (summary["net_gross_profit"] - summary["prev_year_gross"]) / summary["prev_year_gross"],
+            np.nan,
+        )
+    else:
+        summary["prev_year_gross"] = np.nan
+        summary["gross_yoy"] = np.nan
+
+    return summary[columns]
+
+
+def build_kpi_history_df(
+    merged_df: pd.DataFrame,
+    subscription_df: Optional[pd.DataFrame],
+    overrides: Optional[Dict[str, float]],
+) -> pd.DataFrame:
+    """月次KPI履歴を作成する。"""
+
+    if merged_df.empty:
+        return pd.DataFrame()
+
+    months = (
+        merged_df["order_month"].dropna().sort_values().unique()
+        if "order_month" in merged_df.columns
+        else []
+    )
+    history: List[Dict[str, Any]] = []
+    for month in months:
+        kpi_row = calculate_kpis(merged_df, subscription_df, month=month, overrides=overrides)
+        if kpi_row:
+            history.append(kpi_row)
+
+    if not history:
+        return pd.DataFrame()
+
+    history_df = pd.DataFrame(history)
+    if "month" in history_df.columns:
+        history_df["month"] = pd.PeriodIndex(history_df["month"], freq="M")
+    return history_df
+
+
+def aggregate_kpi_history(history_df: pd.DataFrame, freq: str) -> pd.DataFrame:
+    """KPI履歴を指定した粒度で集計する。"""
+
+    columns = [
+        "period",
+        "period_start",
+        "period_end",
+        "period_label",
+        "sales",
+        "gross_profit",
+        "marketing_cost",
+        "active_customers_avg",
+        "new_customers",
+        "repeat_customers",
+        "cancelled_subscriptions",
+        "previous_active_customers",
+        "ltv",
+        "arpu",
+        "churn_rate",
+        "repeat_rate",
+        "gross_margin_rate",
+        "ltv_prev",
+        "ltv_delta",
+        "arpu_prev",
+        "arpu_delta",
+        "churn_prev",
+        "churn_delta",
+    ]
+    if history_df.empty:
+        return pd.DataFrame(columns=columns)
+
+    working = history_df.dropna(subset=["month"]).copy()
+    if working.empty:
+        return pd.DataFrame(columns=columns)
+
+    working["timestamp"] = working["month"].dt.to_timestamp()
+    working["period"] = working["timestamp"].dt.to_period(freq)
+    aggregated = (
+        working.groupby("period").agg(
+            sales=("sales", "sum"),
+            gross_profit=("gross_profit", "sum"),
+            marketing_cost=("marketing_cost", "sum"),
+            active_customers=("active_customers", _nanmean),
+            new_customers=("new_customers", "sum"),
+            repeat_customers=("repeat_customers", "sum"),
+            cancelled_subscriptions=("cancelled_subscriptions", "sum"),
+            previous_active_customers=("previous_active_customers", "sum"),
+            ltv=("ltv", _nanmean),
+        )
+    ).reset_index()
+
+    if aggregated.empty:
+        return pd.DataFrame(columns=columns)
+
+    aggregated.rename(columns={"active_customers": "active_customers_avg"}, inplace=True)
+    aggregated["period_start"] = aggregated["period"].dt.to_timestamp()
+    aggregated["period_end"] = aggregated["period"].dt.to_timestamp(how="end")
+    aggregated["period_label"] = aggregated["period"].apply(lambda p: format_period_label(p, freq))
+
+    aggregated["arpu"] = aggregated.apply(
+        lambda row: row["sales"] / row["active_customers_avg"]
+        if row["active_customers_avg"]
+        else np.nan,
+        axis=1,
+    )
+    aggregated["churn_rate"] = aggregated.apply(
+        lambda row: row["cancelled_subscriptions"] / row["previous_active_customers"]
+        if row["previous_active_customers"]
+        else np.nan,
+        axis=1,
+    )
+    aggregated["repeat_rate"] = aggregated.apply(
+        lambda row: row["repeat_customers"] / row["active_customers_avg"]
+        if row["active_customers_avg"]
+        else np.nan,
+        axis=1,
+    )
+    aggregated["gross_margin_rate"] = aggregated.apply(
+        lambda row: row["gross_profit"] / row["sales"] if row["sales"] else np.nan,
+        axis=1,
+    )
+
+    aggregated.sort_values("period", inplace=True)
+    aggregated["ltv_prev"] = aggregated["ltv"].shift(1)
+    aggregated["ltv_delta"] = aggregated["ltv"] - aggregated["ltv_prev"]
+    aggregated["arpu_prev"] = aggregated["arpu"].shift(1)
+    aggregated["arpu_delta"] = aggregated["arpu"] - aggregated["arpu_prev"]
+    aggregated["churn_prev"] = aggregated["churn_rate"].shift(1)
+    aggregated["churn_delta"] = aggregated["churn_rate"] - aggregated["churn_prev"]
+
+    return aggregated[columns]
 
 
 def main() -> None:
@@ -268,10 +512,30 @@ def main() -> None:
     sales_validation.extend(validate_channel_fees(merged_full))
 
     available_channels = sorted(sales_df["channel"].unique())
+    available_categories = sorted(sales_df["category"].dropna().unique())
     min_date = sales_df["order_date"].min().date()
     max_date = sales_df["order_date"].max().date()
 
-    selected_channels = st.sidebar.multiselect("表示するチャネル", options=available_channels, default=available_channels)
+    selected_channels = st.sidebar.multiselect(
+        "表示するチャネル", options=available_channels, default=available_channels
+    )
+    selected_categories = st.sidebar.multiselect(
+        "表示するカテゴリ",
+        options=available_categories,
+        default=available_categories if available_categories else None,
+    )
+    freq_lookup = {label: freq for label, freq in PERIOD_FREQ_OPTIONS}
+    default_freq_index = next(
+        (idx for idx, (_, freq) in enumerate(PERIOD_FREQ_OPTIONS) if freq == "M"),
+        0,
+    )
+    selected_granularity_label = st.sidebar.selectbox(
+        "ダッシュボード表示粒度",
+        options=[label for label, _ in PERIOD_FREQ_OPTIONS],
+        index=default_freq_index,
+    )
+    selected_freq = freq_lookup[selected_granularity_label]
+
     date_range = st.sidebar.date_input(
         "表示期間（開始日 / 終了日）",
         value=(min_date, max_date),
@@ -279,9 +543,10 @@ def main() -> None:
         max_value=max_date,
     )
 
-    filtered_sales = apply_filters(sales_df, selected_channels, date_range)
+    filtered_sales = apply_filters(sales_df, selected_channels, date_range, selected_categories)
     merged_df = merge_sales_and_costs(filtered_sales, cost_df)
     monthly_summary = monthly_sales_summary(merged_df)
+    period_summary = summarize_sales_by_period(merged_df, selected_freq)
 
     kpi_overrides = {}
     if manual_active > 0:
@@ -300,6 +565,8 @@ def main() -> None:
         kpi_overrides["ltv"] = manual_ltv
 
     kpis = calculate_kpis(merged_df, subscription_df, overrides=kpi_overrides)
+    kpi_history_df = build_kpi_history_df(merged_df, subscription_df, kpi_overrides)
+    kpi_period_summary = aggregate_kpi_history(kpi_history_df, selected_freq)
 
     base_pl = create_current_pl(merged_df, subscription_df, fixed_cost=fixed_cost)
     default_cash_plan = create_default_cashflow_plan(merged_df)
@@ -326,95 +593,325 @@ def main() -> None:
 
     with tabs[0]:
         st.subheader("経営ダッシュボード")
-        if not kpis:
-            st.info("KPI情報が不足しています。KPIデータをアップロードするか、サイドバーで数値を入力してください。")
+        if kpi_period_summary.empty:
+            st.info(
+                "KPI情報が不足しています。KPIデータをアップロードするか、サイドバーで数値を入力してください。"
+            )
         else:
+            period_options = kpi_period_summary["period_label"].tolist()
+            default_period_idx = len(period_options) - 1 if period_options else 0
+            selected_dashboard_period = st.selectbox(
+                f"{selected_granularity_label}の表示期間",
+                options=period_options,
+                index=default_period_idx,
+                key="dashboard_period_select",
+            )
+            selected_kpi_row = kpi_period_summary[
+                kpi_period_summary["period_label"] == selected_dashboard_period
+            ].iloc[0]
+            selected_period = selected_kpi_row["period"]
+            period_row = period_summary[period_summary["period"] == selected_period]
+            period_start = pd.to_datetime(selected_kpi_row["period_start"]).date()
+            period_end = pd.to_datetime(selected_kpi_row["period_end"]).date()
+
+            sales_delta_text = None
+            gross_delta_text = None
+            if not period_row.empty:
+                sales_mom_val = period_row["sales_mom"].iloc[0]
+                gross_mom_val = period_row["gross_mom"].iloc[0]
+                if pd.notna(sales_mom_val):
+                    sales_delta_text = f"{sales_mom_val * 100:.2f}%"
+                if pd.notna(gross_mom_val):
+                    gross_delta_text = f"{gross_mom_val * 100:.2f}%"
+
+            ltv_delta_val = selected_kpi_row.get("ltv_delta")
+            ltv_delta_text = (
+                f"{ltv_delta_val:,.0f} 円" if pd.notna(ltv_delta_val) and ltv_delta_val != 0 else None
+            )
+            arpu_delta_val = selected_kpi_row.get("arpu_delta")
+            arpu_delta_text = (
+                f"{arpu_delta_val:,.0f} 円" if pd.notna(arpu_delta_val) and arpu_delta_val != 0 else None
+            )
+            churn_delta_val = selected_kpi_row.get("churn_delta")
+            churn_delta_text = (
+                f"{churn_delta_val * 100:.2f} pt"
+                if pd.notna(churn_delta_val) and churn_delta_val != 0
+                else None
+            )
+
             metric_cols = st.columns(5)
-            metric_cols[0].metric("月間売上高", f"{kpis['sales']:,.0f} 円")
-            metric_cols[1].metric("月間粗利", f"{kpis['gross_profit']:,.0f} 円")
-            metric_cols[2].metric("LTV", f"{kpis['ltv']:,.0f} 円" if kpis.get("ltv") else "-")
-            metric_cols[3].metric("ARPU", f"{kpis['arpu']:,.0f} 円" if kpis.get("arpu") else "-")
-            if kpis.get("churn_rate") is not None and not np.isnan(kpis["churn_rate"]):
-                metric_cols[4].metric("解約率", f"{kpis['churn_rate']*100:.2f}%")
-            else:
-                metric_cols[4].metric("解約率", "-")
+            metric_cols[0].metric(
+                f"{selected_granularity_label}売上高",
+                f"{selected_kpi_row['sales']:,.0f} 円" if pd.notna(selected_kpi_row["sales"]) else "-",
+                delta=sales_delta_text,
+            )
+            metric_cols[1].metric(
+                f"{selected_granularity_label}粗利",
+                f"{selected_kpi_row['gross_profit']:,.0f} 円"
+                if pd.notna(selected_kpi_row["gross_profit"])
+                else "-",
+                delta=gross_delta_text,
+            )
+            metric_cols[2].metric(
+                "LTV",
+                f"{selected_kpi_row['ltv']:,.0f} 円" if pd.notna(selected_kpi_row["ltv"]) else "-",
+                delta=ltv_delta_text,
+            )
+            metric_cols[3].metric(
+                "ARPU",
+                f"{selected_kpi_row['arpu']:,.0f} 円" if pd.notna(selected_kpi_row["arpu"]) else "-",
+                delta=arpu_delta_text,
+            )
+            churn_value = selected_kpi_row.get("churn_rate")
+            metric_cols[4].metric(
+                "解約率",
+                f"{churn_value * 100:.2f}%" if pd.notna(churn_value) else "-",
+                delta=churn_delta_text,
+            )
 
-        if not monthly_summary.empty:
-            dashboard_summary = monthly_summary.copy()
-            dashboard_summary["month"] = dashboard_summary["order_month"].dt.to_timestamp()
-            latest_12 = dashboard_summary.tail(12)
+            st.caption(f"対象期間: {period_start} 〜 {period_end}")
 
-            sales_chart_df = latest_12[["month", "sales_amount", "prev_year_sales"]].rename(
-                columns={"sales_amount": "現状売上", "prev_year_sales": "前年同月売上"}
+        if not period_summary.empty:
+            latest_periods = period_summary.tail(12).copy()
+            latest_periods["period_start"] = pd.to_datetime(latest_periods["period_start"])
+            sales_chart_source = latest_periods.rename(
+                columns={
+                    "period_start": "期間開始",
+                    "period_label": "期間",
+                    "sales_amount": "現状売上",
+                    "prev_year_sales": "前年同期間売上",
+                }
             )
             sales_chart = px.line(
-                sales_chart_df.melt(id_vars="month", var_name="指標", value_name="金額"),
-                x="month",
+                sales_chart_source.melt(
+                    id_vars=["期間開始", "期間"], var_name="指標", value_name="金額"
+                ),
+                x="期間開始",
                 y="金額",
                 color="指標",
                 markers=True,
+                hover_data={"期間": True},
             )
-            sales_chart.update_layout(yaxis_title="円", xaxis_title="月")
+            sales_chart.update_layout(
+                yaxis_title="円",
+                xaxis_title=f"{selected_granularity_label}開始日",
+                legend=dict(title="", itemclick="toggleothers", itemdoubleclick="toggle"),
+            )
             st.plotly_chart(sales_chart, use_container_width=True)
 
-            gross_chart_df = latest_12[["month", "net_gross_profit"]].rename(columns={"net_gross_profit": "粗利"})
-            gross_chart = px.line(gross_chart_df, x="month", y="粗利", markers=True)
-            gross_chart.update_layout(yaxis_title="円", xaxis_title="月")
+            gross_chart_source = latest_periods.rename(
+                columns={
+                    "period_start": "期間開始",
+                    "period_label": "期間",
+                    "net_gross_profit": "粗利",
+                }
+            )
+            gross_chart = px.line(
+                gross_chart_source,
+                x="期間開始",
+                y="粗利",
+                markers=True,
+                hover_data={"期間": True},
+            )
+            gross_chart.update_layout(
+                yaxis_title="円",
+                xaxis_title=f"{selected_granularity_label}開始日",
+                legend=dict(title=""),
+            )
             st.plotly_chart(gross_chart, use_container_width=True)
 
         chart_cols = st.columns(2)
         if not channel_share_df.empty:
-            channel_chart = px.pie(channel_share_df, names="channel", values="sales_amount", title="チャネル別売上構成比")
+            channel_chart = px.pie(
+                channel_share_df,
+                names="channel",
+                values="sales_amount",
+                title="チャネル別売上構成比",
+            )
             chart_cols[0].plotly_chart(channel_chart, use_container_width=True)
         if not category_share_df.empty:
-            category_chart = px.pie(category_share_df, names="category", values="sales_amount", title="カテゴリ別売上構成比")
+            category_chart = px.pie(
+                category_share_df,
+                names="category",
+                values="sales_amount",
+                title="カテゴリ別売上構成比",
+            )
             chart_cols[1].plotly_chart(category_chart, use_container_width=True)
 
-        if not monthly_summary.empty:
+        if not period_summary.empty:
             yoy_cols = st.columns(2)
-            latest = monthly_summary.iloc[-1]
-            yoy_cols[0].metric("前年同月比", f"{latest['sales_yoy']*100:.2f}%" if not np.isnan(latest["sales_yoy"]) else "-")
-            yoy_cols[1].metric("前月比", f"{latest['sales_mom']*100:.2f}%" if not np.isnan(latest["sales_mom"]) else "-")
+            latest_period_row = period_summary.iloc[-1]
+            yoy_cols[0].metric(
+                "前年同期比",
+                f"{latest_period_row['sales_yoy'] * 100:.2f}%"
+                if pd.notna(latest_period_row["sales_yoy"])
+                else "-",
+            )
+            yoy_cols[1].metric(
+                "前期比",
+                f"{latest_period_row['sales_mom'] * 100:.2f}%"
+                if pd.notna(latest_period_row["sales_mom"])
+                else "-",
+            )
 
     with tabs[1]:
         st.subheader("売上分析")
         if merged_df.empty:
             st.info("売上データがありません。")
         else:
-            st.write("チャネル別売上推移")
-            channel_trend = (
-                merged_df.groupby(["order_month", "channel"])["sales_amount"].sum().reset_index()
+            st.caption("グラフをクリックすると他の可視化も同じ条件で絞り込まれます。")
+            sales_cross_filters = st.session_state.setdefault(
+                "sales_cross_filters", {"channel": None, "category": None}
             )
-            channel_trend["month"] = channel_trend["order_month"].dt.to_timestamp()
+
+            available_analysis_channels = sorted(merged_df["channel"].unique())
+            available_analysis_categories = sorted(merged_df["category"].unique())
+            if (
+                sales_cross_filters.get("channel")
+                and sales_cross_filters["channel"] not in available_analysis_channels
+            ):
+                sales_cross_filters["channel"] = None
+            if (
+                sales_cross_filters.get("category")
+                and sales_cross_filters["category"] not in available_analysis_categories
+            ):
+                sales_cross_filters["category"] = None
+
+            analysis_df = merged_df.copy()
+            active_highlights: List[str] = []
+            if sales_cross_filters.get("channel"):
+                analysis_df = analysis_df[analysis_df["channel"] == sales_cross_filters["channel"]]
+                active_highlights.append(f"チャネル: {sales_cross_filters['channel']}")
+            if sales_cross_filters.get("category"):
+                analysis_df = analysis_df[analysis_df["category"] == sales_cross_filters["category"]]
+                active_highlights.append(f"カテゴリ: {sales_cross_filters['category']}")
+
+            if active_highlights:
+                info_col, clear_col = st.columns([5, 1])
+                info_col.info("ハイライト適用中: " + " / ".join(active_highlights))
+                if clear_col.button("ハイライトをクリア", key="clear_sales_highlight"):
+                    st.session_state["sales_cross_filters"] = {"channel": None, "category": None}
+                    analysis_df = merged_df.copy()
+                    active_highlights = []
+
+            channel_trend_full = merged_df.copy()
+            channel_trend_full["period"] = channel_trend_full["order_date"].dt.to_period(selected_freq)
+            channel_trend_full = (
+                channel_trend_full.groupby(["period", "channel"])["sales_amount"].sum().reset_index()
+            )
+            channel_trend_full["period_start"] = channel_trend_full["period"].dt.to_timestamp()
+            channel_trend_full["period_label"] = channel_trend_full["period"].apply(
+                lambda p: format_period_label(p, selected_freq)
+            )
+            channel_trend_full.sort_values(["channel", "period_start"], inplace=True)
+
             channel_chart = px.line(
-                channel_trend,
-                x="month",
+                channel_trend_full,
+                x="period_start",
                 y="sales_amount",
                 color="channel",
                 markers=True,
-                labels={"sales_amount": "売上高", "month": "月"},
+                labels={
+                    "sales_amount": "売上高",
+                    "period_start": f"{selected_granularity_label}開始日",
+                },
+                custom_data=["channel", "period_label"],
             )
-            st.plotly_chart(channel_chart, use_container_width=True)
+            channel_chart.update_layout(
+                clickmode="event+select",
+                legend=dict(title="", itemclick="toggleothers", itemdoubleclick="toggle"),
+            )
+            for trace in channel_chart.data:
+                trace.update(
+                    hovertemplate="期間=%{customdata[1]}<br>チャネル=%{customdata[0]}<br>売上高=%{y:,.0f}円<extra></extra>"
+                )
+                if sales_cross_filters.get("channel") and trace.name != sales_cross_filters["channel"]:
+                    trace.update(opacity=0.25, line={"width": 1})
+                else:
+                    trace.update(line={"width": 3})
+            channel_events = plotly_events(
+                channel_chart,
+                click_event=True,
+                override_width="100%",
+                override_height=420,
+                key="channel_trend_events",
+            )
+            if channel_events:
+                clicked_channel = channel_events[0]["customdata"][0]
+                current = st.session_state["sales_cross_filters"].get("channel")
+                if current == clicked_channel:
+                    st.session_state["sales_cross_filters"]["channel"] = None
+                else:
+                    st.session_state["sales_cross_filters"]["channel"] = clicked_channel
 
-            st.write("商品カテゴリ別売上構成と成長率")
-            category_sales = (
-                merged_df.groupby(["order_month", "category"])["sales_amount"].sum().reset_index()
+            category_sales_full = merged_df.copy()
+            category_sales_full["period"] = category_sales_full["order_date"].dt.to_period(selected_freq)
+            category_sales_full = (
+                category_sales_full.groupby(["period", "category"])["sales_amount"].sum().reset_index()
             )
-            category_sales["month"] = category_sales["order_month"].dt.to_timestamp()
+            category_sales_full["period_start"] = category_sales_full["period"].dt.to_timestamp()
+            category_sales_full["period_label"] = category_sales_full["period"].apply(
+                lambda p: format_period_label(p, selected_freq)
+            )
+            category_sales_full.sort_values(["category", "period_start"], inplace=True)
+
             category_bar = px.bar(
-                category_sales,
-                x="month",
+                category_sales_full,
+                x="period_start",
                 y="sales_amount",
                 color="category",
-                title="カテゴリ別売上推移",
+                labels={
+                    "sales_amount": "売上高",
+                    "period_start": f"{selected_granularity_label}開始日",
+                },
+                custom_data=["category", "period_label"],
             )
-            st.plotly_chart(category_bar, use_container_width=True)
+            category_bar.update_layout(
+                barmode="stack",
+                clickmode="event+select",
+                legend=dict(title="", itemclick="toggleothers", itemdoubleclick="toggle"),
+            )
+            for trace in category_bar.data:
+                trace.update(
+                    hovertemplate="期間=%{customdata[1]}<br>カテゴリ=%{customdata[0]}<br>売上高=%{y:,.0f}円<extra></extra>"
+                )
+                if sales_cross_filters.get("category") and trace.name != sales_cross_filters["category"]:
+                    trace.update(opacity=0.35)
+                else:
+                    trace.update(opacity=0.9)
+            category_events = plotly_events(
+                category_bar,
+                click_event=True,
+                override_width="100%",
+                override_height=420,
+                key="category_sales_events",
+            )
+            if category_events:
+                clicked_category = category_events[0]["customdata"][0]
+                current_category = st.session_state["sales_cross_filters"].get("category")
+                if current_category == clicked_category:
+                    st.session_state["sales_cross_filters"]["category"] = None
+                else:
+                    st.session_state["sales_cross_filters"]["category"] = clicked_category
 
-            yoy_table = monthly_summary.tail(12)[["order_month", "sales_amount", "sales_yoy", "sales_mom"]]
-            yoy_table = yoy_table.rename(
-                columns={"order_month": "月", "sales_amount": "売上高", "sales_yoy": "前年同月比", "sales_mom": "前月比"}
-            )
-            st.dataframe(yoy_table)
+            analysis_summary = summarize_sales_by_period(analysis_df, selected_freq)
+            if analysis_df.empty:
+                st.warning("選択された条件に該当するデータがありません。")
+            elif analysis_summary.empty:
+                st.info("指定した粒度で集計できる期間データがありません。")
+            else:
+                yoy_table = analysis_summary.tail(12)[
+                    ["period_label", "sales_amount", "sales_yoy", "sales_mom"]
+                ]
+                yoy_table = yoy_table.rename(
+                    columns={
+                        "period_label": "期間",
+                        "sales_amount": "売上高",
+                        "sales_yoy": "前年同期比",
+                        "sales_mom": "前期比",
+                    }
+                )
+                st.dataframe(yoy_table)
 
     with tabs[2]:
         st.subheader("利益分析")
@@ -422,22 +919,51 @@ def main() -> None:
             st.info("データがありません。")
         else:
             product_profit = (
-                merged_df.groupby(["product_code", "product_name", "category"])[
-                    ["sales_amount", "estimated_cost", "net_gross_profit"]
+                merged_df.groupby(["product_code", "product_name", "category"], as_index=False)[
+                    [
+                        "sales_amount",
+                        "estimated_cost",
+                        "net_gross_profit",
+                        "quantity",
+                        "channel_fee_amount",
+                    ]
                 ]
                 .sum()
-                .reset_index()
             )
-            product_profit["粗利率"] = product_profit["net_gross_profit"] / product_profit["sales_amount"]
-            product_profit = product_profit.sort_values("net_gross_profit", ascending=False)
+            product_profit["gross_margin_rate"] = product_profit["net_gross_profit"] / product_profit["sales_amount"]
+            product_profit["average_unit_price"] = np.where(
+                product_profit["quantity"] > 0,
+                product_profit["sales_amount"] / product_profit["quantity"],
+                np.nan,
+            )
+            product_profit["ad_ratio"] = np.where(
+                product_profit["sales_amount"] != 0,
+                product_profit["channel_fee_amount"] / product_profit["sales_amount"],
+                np.nan,
+            )
+            product_profit.sort_values("net_gross_profit", ascending=False, inplace=True)
+            display_columns = {
+                "product_code": "商品コード",
+                "product_name": "商品名",
+                "category": "カテゴリ",
+                "sales_amount": "売上高",
+                "net_gross_profit": "粗利",
+                "gross_margin_rate": "粗利率",
+                "average_unit_price": "平均単価",
+                "quantity": "販売個数",
+                "ad_ratio": "広告費比率",
+            }
             st.dataframe(
-                product_profit.rename(
-                    columns={
-                        "sales_amount": "売上高",
-                        "estimated_cost": "推計原価",
-                        "net_gross_profit": "粗利",
-                    }
-                ),
+                product_profit[list(display_columns.keys())]
+                .rename(columns=display_columns)
+                .style.format({
+                    "売上高": "{:,.0f}",
+                    "粗利": "{:,.0f}",
+                    "粗利率": "{:.2%}",
+                    "平均単価": "{:,.0f}",
+                    "販売個数": "{:,.0f}",
+                    "広告費比率": "{:.2%}",
+                }),
                 use_container_width=True,
             )
 
@@ -451,13 +977,179 @@ def main() -> None:
                 labels={"channel": "チャネル", "net_gross_profit": "粗利"},
                 title="チャネル別粗利比較",
             )
+            channel_profit_chart.update_layout(
+                legend=dict(title=""),
+                xaxis_title="チャネル",
+                yaxis_title="粗利",
+            )
             st.plotly_chart(channel_profit_chart, use_container_width=True)
 
-            top_products = product_profit.head(10)
+            top_products = product_profit.head(10).copy()
             st.subheader("高利益商材トップ10")
-            st.table(
-                top_products[["product_code", "product_name", "category", "sales_amount", "net_gross_profit", "粗利率"]]
+            selected_product_code = st.session_state.setdefault("profit_focus_product", None)
+            if selected_product_code and selected_product_code not in top_products["product_code"].values:
+                st.session_state["profit_focus_product"] = None
+                selected_product_code = None
+
+            top_products_sorted = top_products.sort_values("net_gross_profit")
+            top_products_chart = px.bar(
+                top_products_sorted,
+                x="net_gross_profit",
+                y="product_name",
+                orientation="h",
+                labels={"net_gross_profit": "粗利", "product_name": "商品名"},
+                custom_data=["product_code", "product_name"],
             )
+            highlight_code = st.session_state.get("profit_focus_product")
+            bar_colors = [
+                "#d62728" if code == highlight_code else "#1f77b4"
+                for code in top_products_sorted["product_code"]
+            ]
+            top_products_chart.update_traces(
+                marker_color=bar_colors,
+                hovertemplate="%{customdata[1]}<br>粗利=%{x:,.0f}円<extra></extra>",
+            )
+            top_products_chart.update_layout(
+                height=420,
+                xaxis_title="粗利",
+                yaxis_title="商品名",
+                clickmode="event+select",
+            )
+            events_top_products = plotly_events(
+                top_products_chart,
+                click_event=True,
+                override_width="100%",
+                override_height=420,
+                key="top_products_events",
+            )
+            if events_top_products:
+                clicked_code = events_top_products[0]["customdata"][0]
+                current_code = st.session_state.get("profit_focus_product")
+                if current_code == clicked_code:
+                    st.session_state["profit_focus_product"] = None
+                else:
+                    st.session_state["profit_focus_product"] = clicked_code
+
+            focus_code = st.session_state.get("profit_focus_product")
+            if focus_code is None and not product_profit.empty:
+                focus_code = product_profit.iloc[0]["product_code"]
+                st.session_state["profit_focus_product"] = focus_code
+
+            if focus_code and focus_code in product_profit["product_code"].values:
+                focus_row = product_profit[product_profit["product_code"] == focus_code].iloc[0]
+                st.markdown(
+                    f"### 選択した商品の詳細: {focus_row['product_name']} ({focus_code})"
+                )
+                detail_cols = st.columns(5)
+                detail_cols[0].metric("売上高", f"{focus_row['sales_amount']:,.0f} 円")
+                detail_cols[1].metric("粗利", f"{focus_row['net_gross_profit']:,.0f} 円")
+                detail_cols[2].metric(
+                    "平均単価",
+                    f"{focus_row['average_unit_price']:,.0f} 円"
+                    if pd.notna(focus_row["average_unit_price"])
+                    else "-",
+                )
+                detail_cols[3].metric(
+                    "販売個数",
+                    f"{focus_row['quantity']:,.0f} 個"
+                    if pd.notna(focus_row["quantity"])
+                    else "-",
+                )
+                detail_cols[4].metric(
+                    "広告費比率",
+                    f"{focus_row['ad_ratio'] * 100:.2f}%"
+                    if pd.notna(focus_row["ad_ratio"])
+                    else "-",
+                )
+
+                product_detail = merged_df[merged_df["product_code"] == focus_code].copy()
+                channel_breakdown = (
+                    product_detail.groupby("channel")[
+                        ["sales_amount", "net_gross_profit", "quantity", "channel_fee_amount"]
+                    ]
+                    .sum()
+                    .reset_index()
+                )
+                channel_breakdown["広告費比率"] = np.where(
+                    channel_breakdown["sales_amount"] != 0,
+                    channel_breakdown["channel_fee_amount"] / channel_breakdown["sales_amount"],
+                    np.nan,
+                )
+                if not channel_breakdown.empty:
+                    breakdown_chart = px.bar(
+                        channel_breakdown,
+                        x="channel",
+                        y="net_gross_profit",
+                        labels={"channel": "チャネル", "net_gross_profit": "粗利"},
+                        title="選択商品のチャネル別粗利",
+                    )
+                    breakdown_chart.update_layout(legend=dict(title=""))
+                    st.plotly_chart(breakdown_chart, use_container_width=True)
+                    st.dataframe(
+                        channel_breakdown.rename(
+                            columns={
+                                "channel": "チャネル",
+                                "sales_amount": "売上高",
+                                "net_gross_profit": "粗利",
+                                "quantity": "販売個数",
+                            }
+                        ).style.format(
+                            {
+                                "売上高": "{:,.0f}",
+                                "粗利": "{:,.0f}",
+                                "販売個数": "{:,.0f}",
+                                "広告費比率": "{:.2%}",
+                            }
+                        ),
+                        use_container_width=True,
+                    )
+
+                product_trend = product_detail.copy()
+                product_trend["period"] = product_trend["order_date"].dt.to_period(selected_freq)
+                product_trend_summary = (
+                    product_trend.groupby("period")[
+                        ["sales_amount", "net_gross_profit", "quantity"]
+                    ]
+                    .sum()
+                    .reset_index()
+                )
+                if not product_trend_summary.empty:
+                    product_trend_summary["period_start"] = product_trend_summary["period"].dt.to_timestamp()
+                    product_trend_summary["period_label"] = product_trend_summary["period"].apply(
+                        lambda p: format_period_label(p, selected_freq)
+                    )
+                    profit_trend_chart = px.line(
+                        product_trend_summary,
+                        x="period_start",
+                        y="net_gross_profit",
+                        markers=True,
+                        labels={
+                            "period_start": f"{selected_granularity_label}開始日",
+                            "net_gross_profit": "粗利",
+                        },
+                        hover_data={"period_label": True},
+                    )
+                    profit_trend_chart.update_layout(title="選択商品の粗利推移")
+                    st.plotly_chart(profit_trend_chart, use_container_width=True)
+                    st.dataframe(
+                        product_trend_summary.rename(
+                            columns={
+                                "period_label": "期間",
+                                "sales_amount": "売上高",
+                                "net_gross_profit": "粗利",
+                                "quantity": "販売個数",
+                            }
+                        ).style.format(
+                            {
+                                "売上高": "{:,.0f}",
+                                "粗利": "{:,.0f}",
+                                "販売個数": "{:,.0f}",
+                            }
+                        ),
+                        use_container_width=True,
+                    )
+            else:
+                st.info("表示する高利益商材がありません。")
 
     with tabs[3]:
         st.subheader("財務モニタリング")
@@ -515,53 +1207,72 @@ def main() -> None:
 
     with tabs[4]:
         st.subheader("KPIモニタリング")
-        if merged_df.empty:
-            st.info("データがありません。")
+        if kpi_history_df.empty:
+            st.info("KPI履歴がありません。")
         else:
-            history = []
-            for month in monthly_summary["order_month"]:
-                kpi_month = calculate_kpis(merged_df, subscription_df, month=month, overrides=kpi_overrides)
-                if kpi_month:
-                    history.append(kpi_month)
-            kpi_history = pd.DataFrame(history)
+            kpi_history_display = kpi_history_df.sort_values("month").copy()
+            kpi_history_display["month_str"] = kpi_history_display["month"].astype(str)
+            kpi_charts = st.tabs(["LTV", "CAC", "リピート率", "チャーン率", "ROAS"])
 
-            if kpi_history.empty:
-                st.info("KPI履歴がありません。")
-            else:
-                kpi_history["month"] = kpi_history["month"].astype(str)
-                kpi_charts = st.tabs(["LTV", "CAC", "リピート率", "チャーン率", "ROAS"])
-
-                with kpi_charts[0]:
-                    fig = px.line(kpi_history, x="month", y="ltv", markers=True, title="LTV推移")
-                    st.plotly_chart(fig, use_container_width=True)
-                with kpi_charts[1]:
-                    fig = px.line(kpi_history, x="month", y="cac", markers=True, title="CAC推移")
-                    st.plotly_chart(fig, use_container_width=True)
-                with kpi_charts[2]:
-                    fig = px.bar(kpi_history, x="month", y="repeat_rate", title="リピート率推移")
-                    st.plotly_chart(fig, use_container_width=True)
-                with kpi_charts[3]:
-                    fig = px.bar(kpi_history, x="month", y="churn_rate", title="チャーン率推移")
-                    st.plotly_chart(fig, use_container_width=True)
-                with kpi_charts[4]:
-                    fig = px.line(kpi_history, x="month", y="roas", markers=True, title="ROAS推移")
-                    st.plotly_chart(fig, use_container_width=True)
-
-                st.dataframe(
-                    kpi_history[
-                        [
-                            "month",
-                            "sales",
-                            "gross_profit",
-                            "ltv",
-                            "arpu",
-                            "repeat_rate",
-                            "churn_rate",
-                            "roas",
-                            "cac",
-                        ]
-                    ]
+            with kpi_charts[0]:
+                fig = px.line(
+                    kpi_history_display,
+                    x="month_str",
+                    y="ltv",
+                    markers=True,
+                    title="LTV推移",
                 )
+                st.plotly_chart(fig, use_container_width=True)
+            with kpi_charts[1]:
+                fig = px.line(
+                    kpi_history_display,
+                    x="month_str",
+                    y="cac",
+                    markers=True,
+                    title="CAC推移",
+                )
+                st.plotly_chart(fig, use_container_width=True)
+            with kpi_charts[2]:
+                fig = px.bar(
+                    kpi_history_display,
+                    x="month_str",
+                    y="repeat_rate",
+                    title="リピート率推移",
+                )
+                st.plotly_chart(fig, use_container_width=True)
+            with kpi_charts[3]:
+                fig = px.bar(
+                    kpi_history_display,
+                    x="month_str",
+                    y="churn_rate",
+                    title="チャーン率推移",
+                )
+                st.plotly_chart(fig, use_container_width=True)
+            with kpi_charts[4]:
+                fig = px.line(
+                    kpi_history_display,
+                    x="month_str",
+                    y="roas",
+                    markers=True,
+                    title="ROAS推移",
+                )
+                st.plotly_chart(fig, use_container_width=True)
+
+            st.dataframe(
+                kpi_history_display[
+                    [
+                        "month_str",
+                        "sales",
+                        "gross_profit",
+                        "ltv",
+                        "arpu",
+                        "repeat_rate",
+                        "churn_rate",
+                        "roas",
+                        "cac",
+                    ]
+                ].rename(columns={"month_str": "month"})
+            )
 
             st.subheader("施策効果の簡易比較")
             with st.form("ab_test"):
