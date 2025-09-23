@@ -461,7 +461,10 @@ def generate_sample_sales_data(seed: int = 42) -> pd.DataFrame:
     sales_df["order_date"] = pd.to_datetime(sales_df["order_date"])
     sales_df = normalize_sales_df(sales_df)
     # サンプル用のカテゴリ情報が失われないよう補正
-    sales_df["category"] = sales_df["category"].replace("未分類", sales_df["product_name"].map({p["name"]: p["category"] for p in sample_products}))
+    category_map = {p["name"]: p["category"] for p in sample_products}
+    mapped_categories = sales_df["product_name"].map(category_map)
+    update_mask = sales_df["category"].eq("未分類") & mapped_categories.notna()
+    sales_df.loc[update_mask, "category"] = mapped_categories[update_mask]
     return sales_df
 
 
