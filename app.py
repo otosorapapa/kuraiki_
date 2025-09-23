@@ -61,6 +61,22 @@ PERIOD_YOY_LAG: Dict[str, int] = {
 }
 
 
+MAIN_NAV_STRUCTURE: List[Tuple[str, List[str]]] = [
+    ("ホーム", ["ダッシュボード"]),
+    ("分析", ["売上分析", "利益分析", "財務モニタリング"]),
+    ("レポート", ["KPIモニタリング"]),
+    ("データ入力", ["データアップロード/管理"]),
+]
+
+TUTORIAL_INDEX: List[Dict[str, Any]] = [
+    {
+        "title": "KPIの読み解き方と活用ガイド",
+        "keywords": ["kpi", "活用", "レポート", "ダッシュボード"],
+        "path": "docs/01_user_research_and_kpi.md",
+    }
+]
+
+
 def load_data(
     use_sample: bool,
     uploaded_sales: Dict[str, List],
@@ -377,6 +393,132 @@ def aggregate_kpi_history(history_df: pd.DataFrame, freq: str) -> pd.DataFrame:
     return aggregated[columns]
 
 
+def _nav_sections_lookup() -> Dict[str, List[str]]:
+    """メインメニューごとのセクション一覧を返す。"""
+
+    return {label: sections for label, sections in MAIN_NAV_STRUCTURE}
+
+
+def render_navigation() -> Tuple[str, str]:
+    """トップレベルのナビゲーションを描画し、選択されたセクションを返す。"""
+
+    nav_lookup = _nav_sections_lookup()
+    main_labels = list(nav_lookup.keys())
+
+    selected_main = st.radio(
+        "主要メニュー",
+        options=main_labels,
+        horizontal=True,
+        key="main_nav",
+        label_visibility="collapsed",
+    )
+
+    sections = nav_lookup[selected_main]
+    sub_key = f"sub_nav_{selected_main}"
+    if len(sections) == 1:
+        st.session_state[sub_key] = sections[0]
+        return selected_main, sections[0]
+
+    if sub_key not in st.session_state or st.session_state[sub_key] not in sections:
+        st.session_state[sub_key] = sections[0]
+
+    selected_section = st.radio(
+        "セクション選択",
+        options=sections,
+        horizontal=True,
+        key=sub_key,
+        label_visibility="collapsed",
+    )
+    return selected_main, selected_section
+
+
+def render_breadcrumb(main_label: str, section_label: Optional[str]) -> None:
+    """現在地がわかるパンくずリストを表示する。"""
+
+    parts = [main_label]
+    if section_label and section_label != main_label:
+        parts.append(section_label)
+    breadcrumb = " > ".join(parts)
+    st.markdown(
+        f"<div class='breadcrumb-trail'>🧭 {breadcrumb}</div>",
+        unsafe_allow_html=True,
+    )
+
+
+def render_global_search_results(query: str, merged_df: pd.DataFrame) -> None:
+    """検索クエリに一致するデータやチュートリアルをまとめて表示する。"""
+
+    query = (query or "").strip()
+    if not query:
+        return
+
+    query_lower = query.lower()
+    st.markdown("### 🔍 クイック検索結果")
+
+    if merged_df is not None and not merged_df.empty:
+        searchable = merged_df.copy()
+        for column in ["product_name", "channel", "category"]:
+            if column in searchable.columns:
+                searchable[column] = searchable[column].astype(str)
+        fallback = pd.Series([False] * len(searchable), index=searchable.index)
+        product_series = (
+            searchable["product_name"].str.contains(query, case=False, na=False)
+            if "product_name" in searchable.columns
+            else fallback
+        )
+        channel_series = (
+            searchable["channel"].str.contains(query, case=False, na=False)
+            if "channel" in searchable.columns
+            else fallback
+        )
+        category_series = (
+            searchable["category"].str.contains(query, case=False, na=False)
+            if "category" in searchable.columns
+            else fallback
+        )
+        mask = product_series | channel_series | category_series
+        matched_sales = searchable[mask].copy()
+        if not matched_sales.empty and "order_date" in matched_sales.columns:
+            matched_sales.sort_values("order_date", ascending=False, inplace=True)
+        if not matched_sales.empty:
+            display_cols = []
+            if "order_date" in matched_sales.columns:
+                matched_sales["order_date"] = pd.to_datetime(matched_sales["order_date"])
+                matched_sales["order_date_str"] = matched_sales["order_date"].dt.strftime("%Y-%m-%d")
+                display_cols.append("order_date_str")
+            if "channel" in matched_sales.columns:
+                display_cols.append("channel")
+            if "product_name" in matched_sales.columns:
+                display_cols.append("product_name")
+            if "sales_amount" in matched_sales.columns:
+                display_cols.append("sales_amount")
+            summary_table = matched_sales.head(10)[display_cols].rename(
+                columns={
+                    "order_date_str": "受注日",
+                    "channel": "チャネル",
+                    "product_name": "商品名",
+                    "sales_amount": "売上高",
+                }
+            )
+            if "売上高" in summary_table.columns:
+                summary_table["売上高"] = summary_table["売上高"].map(lambda v: f"{v:,.0f}")
+            st.dataframe(summary_table, hide_index=True, use_container_width=True)
+        else:
+            st.caption("売上データに一致する項目は見つかりませんでした。")
+    else:
+        st.caption("売上データが読み込まれていないため検索できません。")
+
+    matches = [
+        tutorial
+        for tutorial in TUTORIAL_INDEX
+        if query_lower in tutorial["title"].lower()
+        or any(query_lower in keyword.lower() for keyword in tutorial.get("keywords", []))
+    ]
+    if matches:
+        st.markdown("**📘 チュートリアル**")
+        for tutorial in matches:
+            st.markdown(f"- [{tutorial['title']}]({tutorial['path']})")
+
 def main() -> None:
     st.title("📊 くらしいきいき社 計数管理ダッシュボード")
     st.caption("高粗利商材のパフォーマンスを即座に把握し、迅速な意思決定を支援します。")
@@ -576,25 +718,70 @@ def main() -> None:
     default_cash_forecast = forecast_cashflow(default_cash_plan, starting_cash)
 
     alerts = build_alerts(monthly_summary, kpis, default_cash_forecast)
+
+    channel_share_df = compute_channel_share(merged_df)
+    category_share_df = compute_category_share(merged_df)
+
+    st.markdown(
+        """
+        <style>
+        .main-nav .stRadio > div {
+            flex-direction: row;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+        }
+        .breadcrumb-trail {
+            color: #5f6368;
+            margin-bottom: 0.75rem;
+            font-size: 0.95rem;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    top_controls = st.container()
+    with top_controls:
+        search_col, status_col = st.columns([3, 1])
+        with search_col:
+            search_query = st.text_input(
+                "🔍 クイック検索",
+                placeholder="商品名、チャネル、チュートリアルを検索",
+                key="global_search",
+            )
+        with status_col:
+            latest_timestamp = None
+            if not merged_df.empty and "order_date" in merged_df.columns:
+                latest_timestamp = merged_df["order_date"].max()
+            if latest_timestamp is not None and pd.notna(latest_timestamp):
+                if isinstance(latest_timestamp, pd.Timestamp):
+                    latest_label = latest_timestamp.strftime("%Y-%m-%d")
+                else:
+                    latest_label = str(latest_timestamp)
+            else:
+                latest_label = "-"
+            status_col.metric("最新データ", latest_label)
+            if isinstance(date_range, (tuple, list)) and len(date_range) == 2:
+                status_col.caption(f"表示期間: {date_range[0]} 〜 {date_range[1]}")
+
+    with st.container():
+        st.markdown("<div class='main-nav'>", unsafe_allow_html=True)
+        selected_main, selected_section = render_navigation()
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    render_breadcrumb(selected_main, selected_section)
+
     if alerts:
         for msg in alerts:
             st.error(f"⚠️ {msg}")
     else:
         st.success("主要指標は設定した閾値内に収まっています。")
 
-    channel_share_df = compute_channel_share(merged_df)
-    category_share_df = compute_category_share(merged_df)
+    if search_query:
+        render_global_search_results(search_query, merged_df)
+        st.divider()
 
-    tabs = st.tabs([
-        "ダッシュボード",
-        "売上分析",
-        "利益分析",
-        "財務モニタリング",
-        "KPIモニタリング",
-        "データアップロード/管理",
-    ])
-
-    with tabs[0]:
+    if selected_section == "ダッシュボード":
         st.subheader("経営ダッシュボード")
         if kpi_period_summary.empty:
             st.info(
@@ -642,7 +829,8 @@ def main() -> None:
                 else None
             )
 
-            metric_cols = st.columns(5)
+            st.markdown("### 主要KPI")
+            metric_cols = st.columns([1.4, 1, 1, 1, 1])
             metric_cols[0].metric(
                 f"{selected_granularity_label}売上高",
                 f"{selected_kpi_row['sales']:,.0f} 円" if pd.notna(selected_kpi_row["sales"]) else "-",
@@ -674,7 +862,10 @@ def main() -> None:
 
             st.caption(f"対象期間: {period_start} 〜 {period_end}")
 
+        st.divider()
+
         if not period_summary.empty:
+            st.markdown("### 売上と粗利の推移")
             latest_periods = period_summary.tail(12).copy()
             latest_periods["period_start"] = pd.to_datetime(latest_periods["period_start"])
             sales_chart_source = latest_periods.rename(
@@ -730,6 +921,9 @@ def main() -> None:
             )
             st.plotly_chart(gross_chart, use_container_width=True)
 
+        st.divider()
+
+        st.markdown("### チャネルとカテゴリの構成")
         chart_cols = st.columns(2)
         if not channel_share_df.empty:
             channel_chart = px.pie(
@@ -749,6 +943,7 @@ def main() -> None:
             chart_cols[1].plotly_chart(category_chart, use_container_width=True)
 
         if not period_summary.empty:
+            st.divider()
             yoy_cols = st.columns(2)
             latest_period_row = period_summary.iloc[-1]
             yoy_cols[0].metric(
@@ -764,7 +959,7 @@ def main() -> None:
                 else "-",
             )
 
-    with tabs[1]:
+    elif selected_section == "売上分析":
         st.subheader("売上分析")
         if merged_df.empty:
             st.info("売上データがありません。")
@@ -923,7 +1118,7 @@ def main() -> None:
                 )
                 st.dataframe(yoy_table)
 
-    with tabs[2]:
+    elif selected_section == "利益分析":
         st.subheader("利益分析")
         if merged_df.empty:
             st.info("データがありません。")
@@ -1161,7 +1356,7 @@ def main() -> None:
             else:
                 st.info("表示する高利益商材がありません。")
 
-    with tabs[3]:
+    elif selected_section == "財務モニタリング":
         st.subheader("財務モニタリング")
         st.markdown("売上計画や広告費を調整してPL・キャッシュフローをシミュレートします。")
 
@@ -1215,7 +1410,7 @@ def main() -> None:
         else:
             st.info("キャッシュフロープランが未設定です。")
 
-    with tabs[4]:
+    elif selected_section == "KPIモニタリング":
         st.subheader("KPIモニタリング")
         if kpi_history_df.empty:
             st.info("KPI履歴がありません。")
@@ -1507,7 +1702,7 @@ def main() -> None:
             else:
                 st.caption("リピート顧客の平均売上を算出できなかったため、金額の試算は参考値です。")
 
-    with tabs[5]:
+    elif selected_section == "データアップロード/管理":
         st.subheader("データアップロード/管理")
         st.markdown(
             """
