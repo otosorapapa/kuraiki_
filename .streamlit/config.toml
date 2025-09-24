@@ -1,0 +1,17 @@
+[theme]
+primaryColor = "#0B1F3B"
+backgroundColor = "#F7F8FA"
+secondaryBackgroundColor = "#FFFFFF"
+textColor = "#1A1A1A"
+secondaryTextColor = "#5A6B7A"
+font = "sans serif"
+
+[custom]
+accentColor = "#1E88E5"
+successColor = "#4CAF50"
+warningColor = "#FBC02D"
+errorColor = "#E53935"
+spacingUnit = 8
+cardRadius = 10
+cardShadow = "0 1px 4px rgba(0,0,0,0.1)"
+fontFamily = "Inter, 'Source Sans 3', sans-serif"
