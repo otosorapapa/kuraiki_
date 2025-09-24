@@ -167,6 +167,54 @@ EXPENSE_IMPORT_CANDIDATES: Dict[str, List[str]] = {
 }
 
 
+UPLOAD_META_MULTIPLE = "対応形式: CSV, Excel（最大10MB・複数ファイル対応）"
+UPLOAD_META_SINGLE = "対応形式: CSV, Excel（最大10MB・1ファイル）"
+UPLOAD_HELP_MULTIPLE = "CSVまたはExcelファイルをドラッグ＆ドロップで追加できます。複数ファイルをまとめてアップロードできます。"
+UPLOAD_HELP_SINGLE = "CSVまたはExcelファイルをドラッグ＆ドロップでアップロードしてください。1ファイルのみアップロードできます。"
+
+SALES_UPLOAD_CONFIGS: List[Dict[str, str]] = [
+    {
+        "channel": "自社サイト",
+        "label": "自社サイト売上データ",
+        "description": "公式ECサイトの受注・売上明細ファイルをアップロードしてください。",
+    },
+    {
+        "channel": "楽天市場",
+        "label": "楽天市場売上データ",
+        "description": "楽天RMSなどからダウンロードした売上CSV/Excelを読み込みます。",
+    },
+    {
+        "channel": "Amazon",
+        "label": "Amazon売上データ",
+        "description": "Amazonセラーセントラルのレポートをアップロードします。",
+    },
+    {
+        "channel": "Yahoo!ショッピング",
+        "label": "Yahoo!ショッピング売上データ",
+        "description": "ストアクリエイターProから出力した受注データを取り込みます。",
+    },
+]
+
+ANCILLARY_UPLOAD_CONFIGS: List[Dict[str, Any]] = [
+    {
+        "key": "cost",
+        "label": "商品原価率一覧",
+        "description": "商品別の売価・原価・原価率がまとまったファイルをアップロードします。",
+        "meta_text": UPLOAD_META_SINGLE,
+        "help_text": "商品原価率表のCSVまたはExcelを1ファイルだけアップロードできます。",
+        "multiple": False,
+    },
+    {
+        "key": "subscription",
+        "label": "定期購買/KPIデータ",
+        "description": "サブスク会員数・解約数などの月次KPIを含むファイルを読み込みます。",
+        "meta_text": UPLOAD_META_SINGLE,
+        "help_text": "サブスクリプションのKPIを記載したCSVまたはExcelを1ファイルアップロードしてください。",
+        "multiple": False,
+    },
+]
+
+
 STATUS_PILL_DETAILS: Dict[str, Tuple[str, str]] = {
     "ok": ("✅", "正常"),
     "warning": ("⚠️", "警告"),
@@ -344,42 +392,216 @@ def inject_mckinsey_style() -> None:
         }}
 
         section[data-testid="stSidebar"] {{
-            background: linear-gradient(180deg, var(--color-primary) 0%, var(--color-primary-alt) 100%);
-            color: var(--ink-inverse);
+            background: linear-gradient(180deg, #F7F9FC 0%, #FFFFFF 100%);
+            color: var(--ink-strong);
+            border-right: 1px solid rgba(11,31,51,0.08);
+        }}
+
+        section[data-testid="stSidebar"] .block-container {{
+            padding-top: 2.4rem;
         }}
 
         section[data-testid="stSidebar"] * {{
-            color: var(--ink-inverse);
+            color: var(--ink-base);
+        }}
+
+        section[data-testid="stSidebar"] h1,
+        section[data-testid="stSidebar"] h2,
+        section[data-testid="stSidebar"] h3,
+        section[data-testid="stSidebar"] h4 {{
+            color: var(--ink-strong);
         }}
 
         section[data-testid="stSidebar"] a {{
-            color: #D0E2FF;
+            color: #1E5CC3;
         }}
 
         section[data-testid="stSidebar"] a:hover {{
-            color: #FFFFFF;
+            color: #0F1E2E;
         }}
 
         section[data-testid="stSidebar"] input,
         section[data-testid="stSidebar"] select,
         section[data-testid="stSidebar"] textarea {{
-            background: rgba(255,255,255,0.15);
-            border-radius: 0.6rem;
-            border: 1px solid rgba(255,255,255,0.35);
-            color: #ffffff;
+            background: #FFFFFF;
+            border-radius: 0.65rem;
+            border: 1px solid rgba(11,31,51,0.18);
+            color: var(--ink-base);
+        }}
+
+        section[data-testid="stSidebar"] input:focus,
+        section[data-testid="stSidebar"] select:focus,
+        section[data-testid="stSidebar"] textarea:focus {{
+            border-color: rgba(30,92,195,0.55);
+            box-shadow: 0 0 0 2px rgba(30,92,195,0.25);
         }}
 
         section[data-testid="stSidebar"] input::placeholder,
         section[data-testid="stSidebar"] textarea::placeholder {{
-            color: rgba(243,246,250,0.7);
+            color: rgba(17,58,102,0.5);
         }}
 
         section[data-testid="stSidebar"] .stButton>button,
         section[data-testid="stSidebar"] .stDownloadButton>button {{
             border-radius: 0.6rem;
-            border: 1px solid rgba(255,255,255,0.45);
-            background: rgba(255,255,255,0.18);
+            border: 1px solid rgba(30,92,195,0.35);
+            background: linear-gradient(135deg, #2A86FF, #1E5CC3);
             color: #ffffff;
+            box-shadow: 0 8px 20px rgba(30,92,195,0.25);
+        }}
+
+        section[data-testid="stSidebar"] .stButton>button:hover,
+        section[data-testid="stSidebar"] .stDownloadButton>button:hover {{
+            background: linear-gradient(135deg, #1E5CC3, #174A9C);
+        }}
+
+        section[data-testid="stSidebar"] div[data-testid="stExpander"] {{
+            border: 1px solid rgba(11,31,51,0.1);
+            border-radius: 0.95rem;
+            background: #FFFFFF;
+            box-shadow: 0 12px 26px rgba(15,30,46,0.06);
+            margin-bottom: 0.85rem;
+            overflow: hidden;
+        }}
+
+        section[data-testid="stSidebar"] div[data-testid="stExpander"] > div:first-child {{
+            padding: 0.9rem 1rem;
+        }}
+
+        section[data-testid="stSidebar"] div[data-testid="stExpander"] > div:nth-child(2) {{
+            padding: 0 1rem 1rem;
+        }}
+
+        section[data-testid="stSidebar"] div[data-testid="stExpander"] summary {{
+            font-weight: 700;
+            color: var(--ink-strong);
+        }}
+
+        .sidebar-section {{
+            background: #FFFFFF;
+            border-radius: 0.95rem;
+            border: 1px solid rgba(11,31,51,0.08);
+            padding: 1rem 1.1rem;
+            box-shadow: 0 10px 22px rgba(15,30,46,0.05);
+            margin-bottom: 1rem;
+        }}
+
+        .sidebar-section--emphasis {{
+            background: linear-gradient(135deg, rgba(42,134,255,0.12) 0%, rgba(18,58,102,0.08) 100%);
+            border-color: rgba(30,92,195,0.22);
+        }}
+
+        .sidebar-section__eyebrow {{
+            font-size: 0.7rem;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: #1E5CC3;
+            margin-bottom: 0.25rem;
+        }}
+
+        .sidebar-section__title {{
+            font-size: 0.95rem;
+            font-weight: 600;
+            color: var(--ink-strong);
+            margin-bottom: 0.3rem;
+        }}
+
+        .sidebar-section__body {{
+            font-size: 0.85rem;
+            color: var(--ink-base);
+            margin-bottom: 0.5rem;
+        }}
+
+        .sidebar-section__status {{
+            display: inline-flex;
+            align-items: center;
+            gap: 0.3rem;
+            font-size: 0.8rem;
+            font-weight: 600;
+            padding: 0.3rem 0.65rem;
+            border-radius: 0.6rem;
+            background: rgba(30,92,195,0.14);
+            color: #1E5CC3;
+            margin-bottom: 0.6rem;
+        }}
+
+        .sidebar-subheading {{
+            font-size: 0.95rem;
+            font-weight: 700;
+            color: var(--ink-strong);
+            margin: 1.2rem 0 0.6rem;
+        }}
+
+        .sidebar-upload-card {{
+            display: grid;
+            grid-template-columns: auto 1fr;
+            gap: 0.75rem;
+            align-items: center;
+            background: #F4F7FB;
+            border: 1px dashed rgba(17,58,102,0.25);
+            border-radius: 0.85rem;
+            padding: 0.85rem 1rem;
+            margin-bottom: 0.6rem;
+        }}
+
+        .sidebar-upload-card__icons {{
+            display: flex;
+            flex-direction: column;
+            gap: 0.35rem;
+        }}
+
+        .sidebar-upload-card__icon {{
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0.25rem 0.6rem;
+            border-radius: 0.6rem;
+            font-size: 0.72rem;
+            font-weight: 700;
+            letter-spacing: 0.05em;
+        }}
+
+        .sidebar-upload-card__icon--csv {{
+            background: rgba(30,92,195,0.16);
+            color: #1E5CC3;
+        }}
+
+        .sidebar-upload-card__icon--excel {{
+            background: rgba(26,140,76,0.16);
+            color: #1B7A4A;
+        }}
+
+        .sidebar-upload-card__title {{
+            font-weight: 700;
+            font-size: 0.95rem;
+            color: var(--ink-strong);
+        }}
+
+        .sidebar-upload-card__meta {{
+            font-size: 0.78rem;
+            color: var(--ink-subtle);
+            margin-top: 0.15rem;
+        }}
+
+        .sidebar-upload-card__desc {{
+            font-size: 0.85rem;
+            color: var(--ink-base);
+            margin: 0.45rem 0 0;
+        }}
+
+        section[data-testid="stSidebar"] .stFileUploader div[data-testid="stFileUploaderDropzone"] {{
+            background: #FFFFFF;
+            border: 1px dashed rgba(17,58,102,0.28);
+            border-radius: 0.9rem;
+        }}
+
+        section[data-testid="stSidebar"] .stFileUploader div[data-testid="stFileUploaderDropzone"] p {{
+            color: var(--ink-subtle);
+        }}
+
+        section[data-testid="stSidebar"] .stFileUploader div[data-testid="stFileUploaderDropzone"]:hover {{
+            border-color: rgba(30,92,195,0.45);
         }}
 
         .hero-panel {{
@@ -816,8 +1038,13 @@ def inject_mckinsey_style() -> None:
 
         section[data-testid="stSidebar"] .sidebar-meta {{
             font-size: 0.8rem;
-            opacity: 0.92;
+            color: var(--ink-subtle);
             margin-bottom: 0.75rem;
+        }}
+
+        section[data-testid="stSidebar"] .sidebar-meta--status {{
+            color: #1E5CC3;
+            font-weight: 600;
         }}
 
         .stAlert>div {{
@@ -2536,22 +2763,110 @@ def render_global_search_results(query: str, merged_df: pd.DataFrame) -> None:
                 st.markdown(f"- [{tutorial['title']}]({tutorial['path']})")
         st.markdown("</div>", unsafe_allow_html=True)
 
+def render_sidebar_upload_expander(
+    label: str,
+    *,
+    uploader_key: str,
+    description: str,
+    multiple: bool,
+    meta_text: str,
+    help_text: str,
+    file_types: Optional[List[str]] = None,
+) -> Any:
+    """サイドバーにアイコン付きのアップロード用アコーディオンを描画する。"""
+
+    file_types = file_types or ["xlsx", "xls", "csv"]
+    with st.sidebar.expander(label, expanded=False):
+        st.markdown(
+            f"""
+            <div class="sidebar-upload-card">
+                <div class="sidebar-upload-card__icons">
+                    <span class="sidebar-upload-card__icon sidebar-upload-card__icon--csv">CSV</span>
+                    <span class="sidebar-upload-card__icon sidebar-upload-card__icon--excel">XLSX</span>
+                </div>
+                <div class="sidebar-upload-card__body">
+                    <div class="sidebar-upload-card__title">CSV / Excelファイルに対応</div>
+                    <div class="sidebar-upload-card__meta">{meta_text}</div>
+                    <p class="sidebar-upload-card__desc">{description}</p>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        uploaded = st.file_uploader(
+            "ファイルを選択",
+            type=file_types,
+            accept_multiple_files=multiple,
+            key=f"{uploader_key}_uploader",
+            label_visibility="collapsed",
+            help=help_text,
+        )
+    return uploaded
+
+
 def main() -> None:
     inject_mckinsey_style()
 
     st.sidebar.header("データ設定")
-    use_sample_data = st.sidebar.checkbox("サンプルデータを使用", value=True)
+    st.sidebar.markdown(
+        """
+        <div class="sidebar-section sidebar-section--emphasis">
+            <div class="sidebar-section__eyebrow">データ準備</div>
+            <div class="sidebar-section__title">サンプルデータの利用</div>
+            <div class="sidebar-section__body">
+                実データがそろっていない場合でも、サンプルデータでダッシュボードの動作を確認できます。
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    use_sample_data = st.sidebar.checkbox(
+        "サンプルデータを使用",
+        value=True,
+        help="チェックするとダッシュボードにサンプルデータが読み込まれます。外すとアップロードしたファイルのみで指標を計算します。",
+    )
+    sample_status = (
+        "サンプルデータを読み込み中です。"
+        if use_sample_data
+        else "アップロードしたファイルのみを使用しています。"
+    )
+    st.sidebar.markdown(
+        f"<div class='sidebar-section__status'>{sample_status}</div>",
+        unsafe_allow_html=True,
+    )
 
+    st.sidebar.markdown(
+        "<div class='sidebar-subheading'>売上データアップロード</div>",
+        unsafe_allow_html=True,
+    )
     channel_files: Dict[str, List] = {}
-    for channel in ["自社サイト", "楽天市場", "Amazon", "Yahoo!ショッピング"]:
-        channel_files[channel] = st.sidebar.file_uploader(
-            f"{channel} 売上データ", type=["xlsx", "xls", "csv"], accept_multiple_files=True
+    for config in SALES_UPLOAD_CONFIGS:
+        channel_files[config["channel"]] = render_sidebar_upload_expander(
+            config["label"],
+            uploader_key=f"sales_{config['channel']}",
+            description=config["description"],
+            multiple=True,
+            meta_text=UPLOAD_META_MULTIPLE,
+            help_text=UPLOAD_HELP_MULTIPLE,
         )
 
-    cost_file = st.sidebar.file_uploader("商品原価率一覧", type=["xlsx", "xls", "csv"], accept_multiple_files=False)
-    subscription_file = st.sidebar.file_uploader(
-        "定期購買/KPIデータ", type=["xlsx", "xls", "csv"], accept_multiple_files=False
+    st.sidebar.markdown(
+        "<div class='sidebar-subheading'>補助データ</div>",
+        unsafe_allow_html=True,
     )
+    ancillary_results: Dict[str, Any] = {}
+    for config in ANCILLARY_UPLOAD_CONFIGS:
+        ancillary_results[config["key"]] = render_sidebar_upload_expander(
+            config["label"],
+            uploader_key=config["key"],
+            description=config["description"],
+            multiple=config.get("multiple", False),
+            meta_text=config.get("meta_text", UPLOAD_META_SINGLE),
+            help_text=config.get("help_text", UPLOAD_HELP_SINGLE),
+        )
+
+    cost_file = ancillary_results.get("cost")
+    subscription_file = ancillary_results.get("subscription")
 
     if "api_sales_data" not in st.session_state:
         st.session_state["api_sales_data"] = {}
