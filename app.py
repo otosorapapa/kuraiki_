@@ -6,8 +6,9 @@ import html
 import hashlib
 import io
 from contextlib import contextmanager
-from datetime import date, datetime
-from typing import Any, Dict, List, Optional, Tuple
+import calendar
+from datetime import date, datetime, timedelta
+from typing import Any, Callable, Dict, List, Optional, Tuple
 from urllib.parse import parse_qsl
 
 import numpy as np
@@ -153,6 +154,50 @@ EXPENSE_PLAN_TEMPLATES: Dict[str, List[Dict[str, Any]]] = {
         {"費目": "外注費", "月次金額": 160_000, "区分": "変動費"},
         {"費目": "研究開発費", "月次金額": 120_000, "区分": "投資"},
     ],
+}
+
+DEFAULT_STORE_OPTIONS = ["全社", "那覇本店", "浦添物流センター", "EC本部"]
+
+FILTER_STATE_KEYS = {
+    "store": "filter_store",
+    "channels": "filter_channels",
+    "categories": "filter_categories",
+    "period": "filter_period",
+    "freq": "filter_frequency",
+    "signature": "filter_signature",
+}
+
+STATE_MESSAGES: Dict[str, Dict[str, Any]] = {
+    "empty_data": {
+        "type": "warning",
+        "text": "該当期間のデータがありません。他の期間やチャネルを選択してください。",
+        "action_label": "デフォルト条件に戻る",
+    },
+    "loading": {
+        "type": "info",
+        "text": "データを読み込み中です…",
+    },
+    "success": {
+        "type": "success",
+        "text": "データを更新しました。",
+    },
+    "warning_gross_margin": {
+        "type": "warning",
+        "text": "粗利率が目標を下回っています。商品構成を見直しましょう。",
+    },
+    "error": {
+        "type": "error",
+        "text": "データの読み込みに失敗しました。再試行してください。",
+        "action_label": "再読み込み",
+    },
+    "csv_done": {
+        "type": "info",
+        "text": "CSVをダウンロードしました。",
+    },
+    "unauthorized": {
+        "type": "error",
+        "text": "この操作を行う権限がありません。管理者にお問い合わせください。",
+    },
 }
 
 SALES_IMPORT_CANDIDATES: Dict[str, List[str]] = {
@@ -1411,12 +1456,17 @@ def apply_filters(
     channels: List[str],
     date_range: List[date],
     categories: Optional[List[str]] = None,
+    stores: Optional[List[str]] = None,
 ) -> pd.DataFrame:
     """サイドバーで選択した条件をもとに売上データを抽出する。"""
     if sales_df.empty:
         return sales_df
 
     filtered = sales_df.copy()
+    if stores and "store" in filtered.columns:
+        if isinstance(stores, (str, bytes)):
+            stores = [stores]
+        filtered = filtered[filtered["store"].isin(stores)]
     if channels:
         filtered = filtered[filtered["channel"].isin(channels)]
     if categories:
@@ -1434,7 +1484,135 @@ def download_button_from_df(label: str, df: pd.DataFrame, filename: str) -> None
         return
     buffer = io.StringIO()
     df.to_csv(buffer, index=False)
-    st.download_button(label, buffer.getvalue(), file_name=filename, mime="text/csv")
+    clicked = st.download_button(label, buffer.getvalue(), file_name=filename, mime="text/csv")
+    if clicked:
+        display_state_message("csv_done", action_key=f"csv_done_{filename}")
+
+
+def display_state_message(
+    state: str,
+    *,
+    format_kwargs: Optional[Dict[str, Any]] = None,
+    action: Optional[Callable[[], None]] = None,
+    action_label: Optional[str] = None,
+    action_key: Optional[str] = None,
+    container: Optional[Any] = None,
+) -> None:
+    """状態に応じたフィードバックメッセージを表示する。"""
+
+    config = STATE_MESSAGES.get(state)
+    if not config:
+        return
+
+    target = container or st
+    format_kwargs = format_kwargs or {}
+    message_text = config["text"].format(**format_kwargs)
+    message_type = config.get("type", "info")
+    display_fn = getattr(target, message_type, target.info)
+    display_fn(message_text)
+
+    label = action_label or config.get("action_label")
+    if action and label:
+        button_kwargs = {"key": action_key} if action_key else {}
+        if target.button(label, **button_kwargs):
+            action()
+
+
+def suggest_default_period(min_date: date, max_date: date) -> Tuple[date, date]:
+    """営業日に応じた推奨期間（基本は当月）を返す。"""
+
+    today = date.today()
+    if today < min_date:
+        today = min_date
+    if today > max_date:
+        today = max_date
+
+    closing_threshold = 3
+    if today.day <= closing_threshold:
+        reference = (today.replace(day=1) - timedelta(days=1)).replace(day=1)
+    else:
+        reference = today.replace(day=1)
+
+    start_day = reference
+    last_day = calendar.monthrange(reference.year, reference.month)[1]
+    end_day = reference.replace(day=last_day)
+
+    start_day = max(start_day, min_date)
+    end_day = min(end_day, max_date)
+    if start_day > end_day:
+        start_day, end_day = min_date, max_date
+    return start_day, end_day
+
+
+def reset_filters(defaults: Dict[str, Any]) -> None:
+    """フィルタ関連のセッション状態を初期値に戻す。"""
+
+    for key, value in defaults.items():
+        if isinstance(value, list):
+            st.session_state[key] = list(value)
+        else:
+            st.session_state[key] = value
+    st.experimental_rerun()
+
+
+def jump_to_section(main_label: str, section_label: Optional[str] = None) -> None:
+    """ナビゲーションの選択を強制的に切り替えてリロードする。"""
+
+    st.session_state["main_nav"] = main_label
+    if section_label:
+        st.session_state[f"sub_nav_{main_label}"] = section_label
+    st.experimental_rerun()
+
+
+def build_filter_signature(
+    store: Optional[str],
+    channels: Optional[List[str]],
+    categories: Optional[List[str]],
+    date_range: Any,
+    freq_label: str,
+) -> Tuple[Any, ...]:
+    """フィルタの状態を比較可能なタプルに変換する。"""
+
+    if isinstance(date_range, (list, tuple)) and len(date_range) == 2:
+        start_value, end_value = date_range
+    else:
+        start_value = end_value = date_range
+
+    def _normalize_date(value: Any) -> Optional[str]:
+        if value is None:
+            return None
+        if hasattr(value, "isoformat"):
+            return value.isoformat()
+        return str(value)
+
+    return (
+        store or "all",
+        tuple(channels or []),
+        tuple(categories or []),
+        _normalize_date(start_value),
+        _normalize_date(end_value),
+        freq_label,
+    )
+
+
+def normalize_date_input(value: Any) -> Optional[date]:
+    """様々な入力値をdate型に揃える。"""
+
+    if value is None:
+        return None
+    if isinstance(value, date) and not isinstance(value, datetime):
+        return value
+    if isinstance(value, datetime):
+        return value.date()
+    if hasattr(value, "to_pydatetime"):
+        try:
+            return value.to_pydatetime().date()
+        except Exception:
+            return None
+    try:
+        return pd.to_datetime(value).date()
+    except Exception:
+        return None
 
 
 def prepare_plan_table(
@@ -4390,59 +4568,221 @@ def main() -> None:
     automated_sales_data = st.session_state.get("api_sales_data", {})
     automated_reports = list(st.session_state.get("api_sales_validation", {}).values())
 
-    data_dict = load_data(
-        use_sample_data,
-        channel_files,
-        cost_file,
-        subscription_file,
-        automated_sales=automated_sales_data,
-        automated_reports=automated_reports,
-    )
+    try:
+        with st.spinner(STATE_MESSAGES["loading"]["text"]):
+            data_dict = load_data(
+                use_sample_data,
+                channel_files,
+                cost_file,
+                subscription_file,
+                automated_sales=automated_sales_data,
+                automated_reports=automated_reports,
+            )
+    except Exception:
+        display_state_message(
+            "error",
+            action=lambda: st.experimental_rerun(),
+            action_key="reload_after_error",
+        )
+        return
+
     sales_df = data_dict["sales"].copy()
     cost_df = data_dict["cost"].copy()
     subscription_df = data_dict["subscription"].copy()
     sales_validation: ValidationReport = data_dict.get("sales_validation", ValidationReport())
 
     if sales_df.empty:
-        st.warning("売上データが読み込めませんでした。サンプルデータを利用するか、ファイルをアップロードしてください。")
+        display_state_message("empty_data")
         return
 
     merged_full = merge_sales_and_costs(sales_df, cost_df)
     sales_validation.extend(validate_channel_fees(merged_full))
 
-    available_channels = sorted(sales_df["channel"].unique())
-    available_categories = sorted(sales_df["category"].dropna().unique())
-    min_date = sales_df["order_date"].min().date()
-    max_date = sales_df["order_date"].max().date()
-
-    selected_channels = st.sidebar.multiselect(
-        "表示するチャネル", options=available_channels, default=available_channels
+    freq_lookup = {label: freq for label, freq in PERIOD_FREQ_OPTIONS}
+    freq_labels = list(freq_lookup.keys())
+    default_freq_label = next(
+        (label for label, freq in PERIOD_FREQ_OPTIONS if freq == "M"),
+        freq_labels[0],
     )
+
+    unique_channels = sorted(sales_df["channel"].dropna().unique().tolist())
+    unique_categories = sorted(sales_df["category"].dropna().unique().tolist())
+    global_min_date = normalize_date_input(sales_df["order_date"].min()) or date.today()
+    global_max_date = normalize_date_input(sales_df["order_date"].max()) or date.today()
+    if global_min_date > global_max_date:
+        global_min_date, global_max_date = global_max_date, global_min_date
+    global_default_period = suggest_default_period(global_min_date, global_max_date)
+
+    store_candidates = ["全社"]
+    if "store" in sales_df.columns:
+        candidate_values = [str(value) for value in sales_df["store"].dropna().unique()]
+        store_candidates.extend(candidate_values)
+    store_candidates.extend(option for option in DEFAULT_STORE_OPTIONS if option not in store_candidates)
+    store_options = list(dict.fromkeys(store_candidates)) or ["全社"]
+    default_store = store_options[0]
+
+    default_filters = {
+        FILTER_STATE_KEYS["store"]: default_store,
+        FILTER_STATE_KEYS["channels"]: unique_channels,
+        FILTER_STATE_KEYS["categories"]: unique_categories,
+        FILTER_STATE_KEYS["period"]: global_default_period,
+        FILTER_STATE_KEYS["freq"]: default_freq_label,
+    }
+
+    store_state_key = FILTER_STATE_KEYS["store"]
+    if store_state_key not in st.session_state or st.session_state[store_state_key] not in store_options:
+        st.session_state[store_state_key] = default_store
+    store_index = (
+        store_options.index(st.session_state[store_state_key])
+        if st.session_state[store_state_key] in store_options
+        else 0
+    )
+    selected_store = st.sidebar.selectbox(
+        "店舗選択",
+        options=store_options,
+        index=store_index,
+        key=store_state_key,
+        help="最後に選択した店舗は次回アクセス時も自動で設定されます。",
+    )
+
+    if selected_store and selected_store != "全社" and "store" in sales_df.columns:
+        store_sales_df = sales_df[sales_df["store"] == selected_store].copy()
+    else:
+        store_sales_df = sales_df.copy()
+
+    store_min_candidate = normalize_date_input(store_sales_df["order_date"].min()) if not store_sales_df.empty else None
+    store_max_candidate = normalize_date_input(store_sales_df["order_date"].max()) if not store_sales_df.empty else None
+    min_date = store_min_candidate or global_min_date
+    max_date = store_max_candidate or global_max_date
+    if min_date > max_date:
+        min_date, max_date = max_date, min_date
+
+    period_state_key = FILTER_STATE_KEYS["period"]
+    stored_period = st.session_state.get(period_state_key)
+    default_period = suggest_default_period(min_date, max_date)
+    if (
+        period_state_key not in st.session_state
+        or not isinstance(stored_period, (list, tuple))
+        or len(stored_period) != 2
+    ):
+        st.session_state[period_state_key] = default_period
+    else:
+        start_candidate = normalize_date_input(stored_period[0]) or min_date
+        end_candidate = normalize_date_input(stored_period[1]) or max_date
+        if start_candidate < min_date or end_candidate > max_date:
+            st.session_state[period_state_key] = default_period
+        else:
+            st.session_state[period_state_key] = (start_candidate, end_candidate)
+
+    st.sidebar.date_input(
+        "表示期間（開始日 / 終了日）",
+        value=st.session_state[period_state_key],
+        min_value=min_date,
+        max_value=max_date,
+        key=period_state_key,
+    )
+    raw_period = st.session_state[period_state_key]
+    if isinstance(raw_period, (list, tuple)) and len(raw_period) == 2:
+        date_range = (
+            normalize_date_input(raw_period[0]) or min_date,
+            normalize_date_input(raw_period[1]) or max_date,
+        )
+    else:
+        normalized_single = normalize_date_input(raw_period) or min_date
+        date_range = (normalized_single, normalized_single)
+    st.session_state[period_state_key] = date_range
+
+    available_channels = sorted(store_sales_df["channel"].dropna().unique().tolist())
+    channel_state_key = FILTER_STATE_KEYS["channels"]
+    if channel_state_key not in st.session_state:
+        st.session_state[channel_state_key] = available_channels
+    else:
+        preserved_channels = [ch for ch in st.session_state[channel_state_key] if ch in available_channels]
+        if available_channels and not preserved_channels:
+            preserved_channels = available_channels
+        st.session_state[channel_state_key] = preserved_channels
+    selected_channels = st.sidebar.multiselect(
+        "表示するチャネル",
+        options=available_channels,
+        default=st.session_state[channel_state_key] if available_channels else [],
+        key=channel_state_key,
+        help="チャネル選択は関連レポートでも共有されます。",
+    )
+
+    available_categories = sorted(store_sales_df["category"].dropna().unique().tolist())
+    category_state_key = FILTER_STATE_KEYS["categories"]
+    if category_state_key not in st.session_state:
+        st.session_state[category_state_key] = available_categories
+    else:
+        preserved_categories = [cat for cat in st.session_state[category_state_key] if cat in available_categories]
+        if available_categories and not preserved_categories:
+            preserved_categories = available_categories
+        st.session_state[category_state_key] = preserved_categories
     selected_categories = st.sidebar.multiselect(
         "表示するカテゴリ",
         options=available_categories,
-        default=available_categories if available_categories else None,
+        default=st.session_state[category_state_key] if available_categories else [],
+        key=category_state_key,
     )
-    freq_lookup = {label: freq for label, freq in PERIOD_FREQ_OPTIONS}
-    default_freq_index = next(
-        (idx for idx, (_, freq) in enumerate(PERIOD_FREQ_OPTIONS) if freq == "M"),
-        0,
-    )
+
+    freq_state_key = FILTER_STATE_KEYS["freq"]
+    if freq_state_key not in st.session_state or st.session_state[freq_state_key] not in freq_lookup:
+        st.session_state[freq_state_key] = default_freq_label
     selected_granularity_label = st.sidebar.selectbox(
         "ダッシュボード表示粒度",
-        options=[label for label, _ in PERIOD_FREQ_OPTIONS],
-        index=default_freq_index,
+        options=freq_labels,
+        index=freq_labels.index(st.session_state[freq_state_key]),
+        key=freq_state_key,
     )
     selected_freq = freq_lookup[selected_granularity_label]
 
-    date_range = st.sidebar.date_input(
-        "表示期間（開始日 / 終了日）",
-        value=(min_date, max_date),
-        min_value=min_date,
-        max_value=max_date,
-    )
+    st.sidebar.markdown("---")
+    if st.sidebar.button("設定をリセット", key="reset_filter_button"):
+        reset_filters(default_filters)
+    if st.sidebar.button("セッション状態を初期化", key="clear_session_button"):
+        st.session_state.clear()
+        st.experimental_rerun()
 
-    filtered_sales = apply_filters(sales_df, selected_channels, date_range, selected_categories)
+    selected_store = st.session_state[store_state_key]
+    selected_channels = st.session_state[channel_state_key]
+    selected_categories = st.session_state[category_state_key]
+    date_range = st.session_state[period_state_key]
+
+    filter_signature = build_filter_signature(
+        selected_store,
+        selected_channels,
+        selected_categories,
+        date_range,
+        selected_granularity_label,
+    )
+    signature_key = FILTER_STATE_KEYS["signature"]
+    if signature_key not in st.session_state:
+        st.session_state[signature_key] = filter_signature
+    elif st.session_state[signature_key] != filter_signature:
+        display_state_message("success", action_key="filters_success_message")
+        st.session_state[signature_key] = filter_signature
+
+    store_filter: Optional[List[str]] = None
+    if selected_store and selected_store not in ("全社", None):
+        store_filter = [selected_store]
+    if isinstance(date_range, (tuple, list)) and len(date_range) == 2:
+        date_range_list = [date_range[0], date_range[1]]
+    else:
+        date_range_list = [date_range, date_range]
+
+    filtered_sales = apply_filters(
+        sales_df,
+        selected_channels,
+        date_range_list,
+        selected_categories,
+        stores=store_filter,
+    )
+    if filtered_sales.empty:
+        display_state_message(
+            "empty_data",
+            action=lambda: reset_filters(default_filters),
+            action_key="reset_after_empty",
+        )
     merged_df = merge_sales_and_costs(filtered_sales, cost_df)
     segmented_sales_df = annotate_customer_segments(merged_df)
     monthly_summary = monthly_sales_summary(merged_df)
@@ -4538,6 +4878,21 @@ def main() -> None:
             period_row = period_summary[period_summary["period"] == selected_period]
             period_start = pd.to_datetime(selected_kpi_row["period_start"]).date()
             period_end = pd.to_datetime(selected_kpi_row["period_end"]).date()
+
+            gross_rate_value = selected_kpi_row.get("gross_margin_rate")
+            gross_target = KGI_TARGETS.get("gross_margin_rate")
+            if (
+                gross_rate_value is not None
+                and not pd.isna(gross_rate_value)
+                and gross_target is not None
+                and gross_rate_value < gross_target
+            ):
+                display_state_message(
+                    "warning_gross_margin",
+                    action=lambda: jump_to_section("分析", "利益分析"),
+                    action_label="粗利タブを開く",
+                    action_key="warning_gross_margin_button",
+                )
 
             render_kgi_cards(selected_kpi_row, period_row, default_cash_forecast, starting_cash)
             render_dashboard_meta(latest_label, range_label, total_records, alert_count)

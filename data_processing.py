@@ -15,6 +15,7 @@ import requests
 NORMALIZED_SALES_COLUMNS = [
     "order_date",
     "channel",
+    "store",
     "product_code",
     "product_name",
     "category",
@@ -27,6 +28,7 @@ NORMALIZED_SALES_COLUMNS = [
 SALES_COLUMN_ALIASES: Dict[str, List[str]] = {
     "order_date": ["注文日", "注文日時", "Date", "order_date", "注文年月日"],
     "channel": ["チャネル", "販売チャネル", "channel", "モール"],
+    "store": ["店舗", "店名", "支店", "store", "倉庫"],
     "product_code": ["商品コード", "SKU", "品番", "product_code", "商品番号"],
     "product_name": ["商品名", "品名", "product", "product_name"],
     "category": ["カテゴリ", "カテゴリー", "category", "商品カテゴリ"],
@@ -206,6 +208,8 @@ def normalize_sales_df(df: pd.DataFrame, channel: Optional[str] = None) -> pd.Da
     normalized = normalized[NORMALIZED_SALES_COLUMNS]
     normalized["order_date"] = pd.to_datetime(normalized["order_date"], errors="coerce")
     normalized["channel"] = normalized["channel"].fillna(channel or "不明").astype(str)
+    if "store" in normalized.columns:
+        normalized["store"] = normalized["store"].fillna("全社").astype(str)
     normalized["product_code"] = normalized["product_code"].fillna("NA").astype(str)
     normalized["product_name"] = normalized["product_name"].fillna("不明商品").astype(str)
     normalized["category"] = normalized["category"].fillna("未分類").astype(str)
@@ -1082,6 +1086,8 @@ def generate_sample_sales_data(seed: int = 42) -> pd.DataFrame:
     months = pd.period_range("2023-01", periods=24, freq="M")
     channels = ["自社サイト", "楽天市場", "Amazon", "Yahoo!ショッピング"]
     campaigns = ["LINE広告", "Instagram広告", "リスティング", "定期フォロー", "紹介キャンペーン"]
+    stores = ["那覇本店", "浦添物流センター", "EC本部"]
+    store_probabilities = [0.25, 0.25, 0.5]
 
     sample_products = [
         {"code": "FKD01", "name": "低分子フコイダンドリンク", "category": "フコイダン", "price": 11800, "cost_rate": 0.24},
@@ -1112,10 +1118,12 @@ def generate_sample_sales_data(seed: int = 42) -> pd.DataFrame:
                 customer_count = max(1, int(quantity * 0.6))
                 for i in range(max(1, customer_count // 3)):
                     campaign = campaigns[rng.integers(0, len(campaigns))]
+                    store = rng.choice(stores, p=store_probabilities)
                     records.append(
                         {
                             "order_date": month.to_timestamp("M") - pd.Timedelta(days=rng.integers(0, 27)),
                             "channel": channel,
+                            "store": store,
                             "product_code": product["code"],
                             "product_name": product["name"],
                             "category": product["category"],
