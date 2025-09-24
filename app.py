@@ -46,8 +46,10 @@ from data_processing import (
 )
 
 st.set_page_config(
-    page_title="くらしいきいき社 計数管理ダッシュボード",
+    page_title="経営ダッシュボード｜くらしいきいき社",
+    page_icon="📊",
     layout="wide",
+    initial_sidebar_state="expanded",
 )
 
 
@@ -1432,6 +1434,36 @@ def inject_mckinsey_style() -> None:
         """,
         unsafe_allow_html=True,
     )
+
+
+def remember_last_uploaded_files(
+    uploaded_sales: Dict[str, Any],
+    cost_file: Any,
+    subscription_file: Any,
+) -> None:
+    """最新のアップロードファイル名をセッションに保存する。"""
+
+    file_names: List[str] = []
+
+    for files in uploaded_sales.values():
+        if isinstance(files, list):
+            for file in files:
+                if file is not None and hasattr(file, "name"):
+                    file_names.append(file.name)
+        elif files is not None and hasattr(files, "name"):
+            file_names.append(files.name)
+
+    for extra in (cost_file, subscription_file):
+        if isinstance(extra, list):
+            for file in extra:
+                if file is not None and hasattr(file, "name"):
+                    file_names.append(file.name)
+        elif extra is not None and hasattr(extra, "name"):
+            file_names.append(extra.name)
+
+    if file_names:
+        unique_names = list(dict.fromkeys(file_names))
+        st.session_state["last_uploaded"] = unique_names
 
 
 def load_data(
@@ -3448,6 +3480,47 @@ def build_delta_label(prefix: str, formatted: Optional[str], raw_value: Optional
     return f"{prefix} {arrow} {formatted}"
 
 
+def show_kpi_card(
+    label: str,
+    current: Optional[float],
+    previous: Optional[float],
+    *,
+    unit: str = "",
+    value_format: str = "number",
+    digits: int = 0,
+    inverse: bool = False,
+) -> None:
+    """st.metric を用いてKPIカードを描画する。"""
+
+    display_value = "-"
+    if current is not None and not pd.isna(current):
+        numeric = float(current)
+        if value_format == "percent":
+            display_value = f"{numeric:.{digits}f}{unit}"
+        elif digits > 0:
+            display_value = f"{numeric:,.{digits}f}{unit}"
+        else:
+            display_value = f"{numeric:,.0f}{unit}"
+
+    delta_text: Optional[str] = None
+    if (
+        current is not None
+        and not pd.isna(current)
+        and previous is not None
+        and not pd.isna(previous)
+        and float(previous) != 0
+    ):
+        change_ratio = (float(current) - float(previous)) / float(previous)
+        delta_text = f"{change_ratio * 100:+.1f}%"
+
+    st.metric(
+        label=label,
+        value=display_value,
+        delta=delta_text,
+        delta_color="inverse" if inverse else "normal",
+    )
+
+
 def render_kgi_cards(
     selected_kpi_row: pd.Series,
     period_row: Optional[pd.DataFrame],
@@ -3460,19 +3533,28 @@ def render_kgi_cards(
         return
 
     sales_value = selected_kpi_row.get("sales")
-    sales_delta_val: Optional[float] = None
-    if period_row is not None and not period_row.empty:
-        raw = period_row["sales_mom"].iloc[0]
-        if pd.notna(raw):
-            sales_delta_val = float(raw)
-    sales_delta_text = format_percentage_delta(sales_delta_val)
-    sales_gap_text, sales_gap_val = format_target_gap(sales_value, KGI_TARGETS.get("sales"))
+    sales_previous: Optional[float] = None
+    if (
+        period_row is not None
+        and not period_row.empty
+        and "prev_period_sales" in period_row.columns
+    ):
+        prev_value = period_row.iloc[0].get("prev_period_sales")
+        if prev_value is not None and not pd.isna(prev_value):
+            sales_previous = float(prev_value)
+    sales_gap_text, sales_gap_val = format_target_gap(
+        sales_value,
+        KGI_TARGETS.get("sales"),
+    )
 
     gross_margin_rate = selected_kpi_row.get("gross_margin_rate")
-    gross_delta_val = selected_kpi_row.get("gross_margin_delta")
-    if pd.isna(gross_delta_val):
-        gross_delta_val = None
-    gross_delta_text = format_percentage_delta(gross_delta_val)
+    gross_prev_rate = selected_kpi_row.get("gross_margin_prev")
+    gross_current_pct: Optional[float] = None
+    if gross_margin_rate is not None and not pd.isna(gross_margin_rate):
+        gross_current_pct = float(gross_margin_rate) * 100
+    gross_previous_pct: Optional[float] = None
+    if gross_prev_rate is not None and not pd.isna(gross_prev_rate):
+        gross_previous_pct = float(gross_prev_rate) * 100
     gross_gap_text, gross_gap_val = format_target_gap(
         gross_margin_rate,
         KGI_TARGETS.get("gross_margin_rate"),
@@ -3480,79 +3562,71 @@ def render_kgi_cards(
     )
 
     cash_balance = starting_cash
-    cash_delta_val: Optional[float] = None
+    previous_cash_balance: Optional[float] = None
     if cash_forecast is not None and not cash_forecast.empty:
         first_row = cash_forecast.iloc[0]
         cash_balance = float(first_row.get("cash_balance", starting_cash))
         net_cf_val = first_row.get("net_cf")
         if net_cf_val is not None and not pd.isna(net_cf_val):
-            cash_delta_val = float(net_cf_val)
-    cash_delta_text = (
-        f"{cash_delta_val:+,.0f} 円" if cash_delta_val is not None else None
-    )
+            previous_cash_balance = cash_balance - float(net_cf_val)
     cash_gap_text, cash_gap_val = format_target_gap(
         cash_balance,
         KGI_TARGETS.get("cash_balance"),
         digits=0,
     )
 
-    cards_data = [
+    cards_info: List[Dict[str, Any]] = [
         {
-            "title": "月次売上高",
-            "value": _format_currency_compact(sales_value),
-            "delta_label": build_delta_label("前期比", sales_delta_text, sales_delta_val),
-            "delta_class": delta_class_from_value(sales_delta_val),
+            "label": "月次売上高",
+            "current": sales_value,
+            "previous": sales_previous,
+            "unit": "円",
+            "value_format": "number",
+            "digits": 0,
             "target_text": sales_gap_text,
-            "target_class": "kgi-card__target--behind"
-            if sales_gap_val is not None and sales_gap_val < 0
-            else "",
+            "gap_value": sales_gap_val,
         },
         {
-            "title": "粗利率",
-            "value": format_percent(gross_margin_rate),
-            "delta_label": build_delta_label("前期比", gross_delta_text, gross_delta_val),
-            "delta_class": delta_class_from_value(gross_delta_val),
+            "label": "粗利率",
+            "current": gross_current_pct,
+            "previous": gross_previous_pct,
+            "unit": "%",
+            "value_format": "percent",
+            "digits": 1,
             "target_text": gross_gap_text,
-            "target_class": "kgi-card__target--behind"
-            if gross_gap_val is not None and gross_gap_val < 0
-            else "",
+            "gap_value": gross_gap_val,
         },
         {
-            "title": "資金残高",
-            "value": _format_currency_compact(cash_balance),
-            "delta_label": build_delta_label("前期比", cash_delta_text, cash_delta_val),
-            "delta_class": delta_class_from_value(cash_delta_val),
+            "label": "資金残高",
+            "current": cash_balance,
+            "previous": previous_cash_balance,
+            "unit": "円",
+            "value_format": "number",
+            "digits": 0,
             "target_text": cash_gap_text,
-            "target_class": "kgi-card__target--behind"
-            if cash_gap_val is not None and cash_gap_val < 0
-            else "",
+            "gap_value": cash_gap_val,
         },
     ]
 
-    cards_html = []
-    for card in cards_data:
-        cards_html.append(
-            """
-            <div class="kgi-card">
-                <div class="kgi-card__title">{title}</div>
-                <div class="kgi-card__value">{value}</div>
-                <div class="kgi-card__delta {delta_class}">{delta_label}</div>
-                <div class="kgi-card__target {target_class}">目標差 {target_text}</div>
-            </div>
-            """.format(
-                title=html.escape(card["title"]),
-                value=html.escape(card["value"] if card["value"] else "-"),
-                delta_class=card["delta_class"],
-                delta_label=html.escape(card["delta_label"]),
-                target_class=card["target_class"],
-                target_text=html.escape(card["target_text"]),
+    columns = st.columns(len(cards_info))
+    for column, info in zip(columns, cards_info):
+        with column:
+            show_kpi_card(
+                info["label"],
+                info.get("current"),
+                info.get("previous"),
+                unit=info.get("unit", ""),
+                value_format=info.get("value_format", "number"),
+                digits=int(info.get("digits", 0)),
+                inverse=info.get("inverse", False),
             )
-        )
-
-    st.markdown(
-        "<div class='kgi-grid'>{}</div>".format("".join(cards_html)),
-        unsafe_allow_html=True,
-    )
+            target_text = info.get("target_text")
+            gap_value = info.get("gap_value")
+            if target_text and target_text != "-":
+                prefix = "⚠️" if gap_value is not None and gap_value < 0 else "🎯"
+                st.caption(f"{prefix} 目標差 {target_text}")
+            else:
+                st.caption("目標差 -")
 
 
 def render_dashboard_meta(
@@ -3916,17 +3990,38 @@ def render_sales_tab(
                     detail_df["粗利"] / detail_df["売上高"],
                     np.nan,
                 )
-                display_df = detail_df.copy()
-                display_df["販売数量"] = display_df["販売数量"].map(lambda v: f"{v:,.0f}")
-                for column in ["売上高", "粗利"]:
-                    display_df[column] = display_df[column].map(lambda v: f"{v:,.0f}")
-                display_df["粗利率"] = display_df["粗利率"].map(
-                    lambda v: f"{v * 100:.1f}%" if pd.notna(v) else "-"
+                display_df = detail_df.rename(
+                    columns={
+                        "product_code": "商品コード",
+                        "product_name": "商品名",
+                        "category": "カテゴリ",
+                    }
                 )
-                st.dataframe(display_df, hide_index=True, use_container_width=True)
+                column_order = [
+                    "商品コード",
+                    "商品名",
+                    "カテゴリ",
+                    "売上高",
+                    "粗利",
+                    "粗利率",
+                    "販売数量",
+                ]
+                display_df = display_df[column_order]
+                column_config = {
+                    "売上高": st.column_config.NumberColumn("売上高 (円)", format=",.0f"),
+                    "粗利": st.column_config.NumberColumn("粗利 (円)", format=",.0f"),
+                    "販売数量": st.column_config.NumberColumn("販売数量", format=",.0f"),
+                    "粗利率": st.column_config.NumberColumn("粗利率 (%)", format="0.0%"),
+                }
+                st.dataframe(
+                    display_df,
+                    hide_index=True,
+                    use_container_width=True,
+                    column_config=column_config,
+                )
                 toolbar = st.columns(2)
                 with toolbar[0]:
-                    download_button_from_df("CSV出力", detail_df, "sales_detail.csv")
+                    download_button_from_df("CSV出力", display_df, "sales_detail.csv")
                 with toolbar[1]:
                     st.button("PDF出力 (準備中)", disabled=True)
 
@@ -4810,6 +4905,15 @@ def main() -> None:
 
     cost_file = ancillary_results.get("cost")
     subscription_file = ancillary_results.get("subscription")
+
+    remember_last_uploaded_files(channel_files, cost_file, subscription_file)
+
+    last_uploaded = st.session_state.get("last_uploaded")
+    if last_uploaded:
+        preview = ", ".join(last_uploaded[:3])
+        if len(last_uploaded) > 3:
+            preview += f" 他{len(last_uploaded) - 3}件"
+        st.sidebar.caption(f"前回アップロード: {preview}")
 
     if "api_sales_data" not in st.session_state:
         st.session_state["api_sales_data"] = {}
