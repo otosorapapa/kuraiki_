@@ -2909,6 +2909,7 @@ def summarize_sales_by_period(df: pd.DataFrame, freq: str) -> pd.DataFrame:
         "sales_amount",
         "gross_profit",
         "net_gross_profit",
+        "gross_margin_rate",
         "prev_period_sales",
         "sales_mom",
         "prev_year_sales",
@@ -2932,6 +2933,12 @@ def summarize_sales_by_period(df: pd.DataFrame, freq: str) -> pd.DataFrame:
     summary["period_start"] = summary["period"].dt.to_timestamp()
     summary["period_end"] = summary["period"].dt.to_timestamp(how="end")
     summary["period_label"] = summary["period"].apply(lambda p: format_period_label(p, freq))
+
+    summary["gross_margin_rate"] = np.where(
+        summary["sales_amount"] != 0,
+        summary["net_gross_profit"] / summary["sales_amount"],
+        np.nan,
+    )
 
     summary["prev_period_sales"] = summary["sales_amount"].shift(1)
     summary["sales_mom"] = np.where(
