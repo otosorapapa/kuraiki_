@@ -780,6 +780,11 @@ def calculate_kpis(
     gross_margin_rate = monthly_gross_profit / monthly_sales if monthly_sales else np.nan
     cac = marketing_cost / new_customers if new_customers else np.nan
 
+    inventory_turnover_days = overrides.get("inventory_turnover_days", np.nan)
+    stockout_rate = overrides.get("stockout_rate", np.nan)
+    training_sessions = overrides.get("training_sessions", np.nan)
+    new_product_count = overrides.get("new_product_count", np.nan)
+
     return {
         "month": month,
         "sales": monthly_sales,
@@ -798,6 +803,10 @@ def calculate_kpis(
         "adv_ratio": adv_ratio,
         "gross_margin_rate": gross_margin_rate,
         "cac": cac,
+        "inventory_turnover_days": inventory_turnover_days,
+        "stockout_rate": stockout_rate,
+        "training_sessions": training_sessions,
+        "new_product_count": new_product_count,
     }
 
 

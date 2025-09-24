@@ -631,6 +631,27 @@ def inject_mckinsey_style() -> None:
             gap: 0.75rem;
         }}
 
+        .hero-persona {{
+            margin-top: 1.4rem;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.6rem;
+        }}
+
+        .hero-chip {{
+            display: inline-flex;
+            align-items: center;
+            background: rgba(255,255,255,0.88);
+            color: var(--color-primary);
+            padding: 0.3rem 0.85rem;
+            border-radius: 999px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            letter-spacing: 0.01em;
+            gap: 0.35rem;
+            box-shadow: 0 8px 22px rgba(9,21,35,0.16);
+        }}
+
         .hero-badge {{
             display: inline-flex;
             align-items: center;
@@ -661,6 +682,48 @@ def inject_mckinsey_style() -> None:
             border: 1px solid rgba(11,31,51,0.12);
             margin-bottom: 1.8rem;
             color: var(--ink-base);
+        }}
+
+        .bsc-card {{
+            background: linear-gradient(180deg, rgba(255,255,255,0.96) 0%, rgba(242,246,255,0.92) 100%);
+            border-radius: 1rem;
+            padding: 1.2rem 1.4rem;
+            box-shadow: 0 18px 48px rgba(15,30,46,0.18);
+            border: 1px solid rgba(11,31,51,0.08);
+            color: var(--ink-base);
+        }}
+
+        .bsc-card__title {{
+            font-size: 0.95rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--ink-strong);
+            margin-bottom: 0.35rem;
+        }}
+
+        .bsc-card__subtitle {{
+            font-size: 0.8rem;
+            color: var(--ink-subtle);
+            margin-bottom: 0.75rem;
+        }}
+
+        .bsc-card .stMetric {{
+            margin-bottom: 0.55rem;
+        }}
+
+        .bsc-card .stMetric label {{
+            color: var(--ink-base);
+            font-size: 0.85rem;
+        }}
+
+        .bsc-card .stMetric div[data-testid="stMetricValue"] {{
+            color: var(--ink-strong);
+            font-size: 1.55rem;
+        }}
+
+        .bsc-card .stMetric div[data-testid="stMetricDelta"] {{
+            font-size: 0.85rem;
         }}
 
         .form-section {{
@@ -2481,12 +2544,28 @@ def aggregate_kpi_history(history_df: pd.DataFrame, freq: str) -> pd.DataFrame:
         "churn_rate",
         "repeat_rate",
         "gross_margin_rate",
+        "inventory_turnover_days",
+        "stockout_rate",
+        "training_sessions",
+        "new_product_count",
         "ltv_prev",
         "ltv_delta",
         "arpu_prev",
         "arpu_delta",
         "churn_prev",
         "churn_delta",
+        "gross_margin_prev",
+        "gross_margin_delta",
+        "repeat_prev",
+        "repeat_delta",
+        "inventory_turnover_prev",
+        "inventory_turnover_delta",
+        "stockout_prev",
+        "stockout_delta",
+        "training_prev",
+        "training_delta",
+        "new_product_prev",
+        "new_product_delta",
     ]
     if history_df.empty:
         return pd.DataFrame(columns=columns)
@@ -2508,6 +2587,10 @@ def aggregate_kpi_history(history_df: pd.DataFrame, freq: str) -> pd.DataFrame:
             cancelled_subscriptions=("cancelled_subscriptions", "sum"),
             previous_active_customers=("previous_active_customers", "sum"),
             ltv=("ltv", _nanmean),
+            inventory_turnover_days=("inventory_turnover_days", _nanmean),
+            stockout_rate=("stockout_rate", _nanmean),
+            training_sessions=("training_sessions", "sum"),
+            new_product_count=("new_product_count", "sum"),
         )
     ).reset_index()
 
@@ -2549,8 +2632,85 @@ def aggregate_kpi_history(history_df: pd.DataFrame, freq: str) -> pd.DataFrame:
     aggregated["arpu_delta"] = aggregated["arpu"] - aggregated["arpu_prev"]
     aggregated["churn_prev"] = aggregated["churn_rate"].shift(1)
     aggregated["churn_delta"] = aggregated["churn_rate"] - aggregated["churn_prev"]
+    aggregated["gross_margin_prev"] = aggregated["gross_margin_rate"].shift(1)
+    aggregated["gross_margin_delta"] = aggregated["gross_margin_rate"] - aggregated["gross_margin_prev"]
+    aggregated["repeat_prev"] = aggregated["repeat_rate"].shift(1)
+    aggregated["repeat_delta"] = aggregated["repeat_rate"] - aggregated["repeat_prev"]
+    aggregated["inventory_turnover_prev"] = aggregated["inventory_turnover_days"].shift(1)
+    aggregated["inventory_turnover_delta"] = (
+        aggregated["inventory_turnover_days"] - aggregated["inventory_turnover_prev"]
+    )
+    aggregated["stockout_prev"] = aggregated["stockout_rate"].shift(1)
+    aggregated["stockout_delta"] = aggregated["stockout_rate"] - aggregated["stockout_prev"]
+    aggregated["training_prev"] = aggregated["training_sessions"].shift(1)
+    aggregated["training_delta"] = aggregated["training_sessions"] - aggregated["training_prev"]
+    aggregated["new_product_prev"] = aggregated["new_product_count"].shift(1)
+    aggregated["new_product_delta"] = (
+        aggregated["new_product_count"] - aggregated["new_product_prev"]
+    )
 
     return aggregated[columns]
+
+
+def format_currency(value: Optional[float]) -> str:
+    """通貨表記で値を整形する。"""
+
+    if value is None or pd.isna(value):
+        return "-"
+    return f"{value:,.0f} 円"
+
+
+def format_percent(value: Optional[float], digits: int = 1) -> str:
+    """割合値を%表示に変換する。"""
+
+    if value is None or pd.isna(value):
+        return "-"
+    return f"{value * 100:.{digits}f}%"
+
+
+def format_number(value: Optional[float], *, digits: int = 1, unit: str = "") -> str:
+    """一般的な数値を文字列化する。"""
+
+    if value is None or pd.isna(value):
+        return "-"
+    formatted = f"{value:,.{digits}f}" if digits > 0 else f"{value:,.0f}"
+    return f"{formatted}{unit}"
+
+
+def format_delta(
+    value: Optional[float], *, digits: int = 1, unit: str = "", percentage: bool = False
+) -> Optional[str]:
+    """指標変化量の表示を整える。"""
+
+    if value is None or pd.isna(value):
+        return None
+    if abs(float(value)) < 1e-9:
+        return None
+    if percentage:
+        return f"{value * 100:+.{digits}f} pt"
+    formatted = f"{value:+.{digits}f}"
+    if unit:
+        formatted = f"{formatted}{unit}"
+    return formatted
+
+
+def render_bsc_card(
+    *, title: str, icon: str, subtitle: Optional[str], metrics: List[Dict[str, Optional[str]]]
+) -> None:
+    """バランスト・スコアカードのカードUIを描画する。"""
+
+    st.markdown("<div class='bsc-card'>", unsafe_allow_html=True)
+    st.markdown(
+        f"<div class='bsc-card__title'>{icon} {html.escape(title)}</div>", unsafe_allow_html=True
+    )
+    if subtitle:
+        st.markdown(
+            f"<div class='bsc-card__subtitle'>{html.escape(subtitle)}</div>",
+            unsafe_allow_html=True,
+        )
+    for metric in metrics:
+        st.metric(metric["label"], metric["value"], delta=metric.get("delta"))
+    st.markdown("</div>", unsafe_allow_html=True)
 
 
 def _nav_sections_lookup() -> Dict[str, List[str]]:
@@ -2627,6 +2787,11 @@ def render_hero_section(
                 <span class="hero-badge">表示期間: {period}</span>
                 <span class="hero-badge">対象レコード: {records}</span>
                 <span class="{status_class}">{status}</span>
+            </div>
+            <div class="hero-persona">
+                <span class="hero-chip">👤 社長: 売上・粗利を5秒確認</span>
+                <span class="hero-chip">🏪 店長: リピーターと在庫</span>
+                <span class="hero-chip">📊 経理: 資金繰りと育成</span>
             </div>
         </div>
         """.format(
@@ -2969,6 +3134,39 @@ def main() -> None:
         manual_marketing = st.number_input("当月広告費", min_value=0.0, value=0.0, step=50_000.0)
         manual_ltv = st.number_input("LTV試算値", min_value=0.0, value=0.0, step=1_000.0)
 
+        st.markdown("#### バランスト・スコアカード指標")
+        manual_inventory_days = st.number_input(
+            "在庫回転日数（目標: 45日以下）",
+            min_value=0.0,
+            value=45.0,
+            step=1.0,
+            help="内部プロセス視点: 在庫を現金化するまでの日数を把握します。",
+        )
+        manual_stockout_pct = st.number_input(
+            "欠品率（%）",
+            min_value=0.0,
+            max_value=100.0,
+            value=4.0,
+            step=0.5,
+            help="内部プロセス視点: 欠品による販売機会損失を監視します。",
+        )
+        manual_training_sessions = st.number_input(
+            "従業員研修実施数（月内）",
+            min_value=0.0,
+            value=2.0,
+            step=1.0,
+            format="%.0f",
+            help="学習・成長視点: 店長や経理がスキルを磨いた回数です。",
+        )
+        manual_new_products = st.number_input(
+            "新商品リリース数（月内）",
+            min_value=0.0,
+            value=1.0,
+            step=1.0,
+            format="%.0f",
+            help="学習・成長視点: 新しい価値提案の数を追跡します。",
+        )
+
     automated_sales_data = st.session_state.get("api_sales_data", {})
     automated_reports = list(st.session_state.get("api_sales_validation", {}).values())
 
@@ -3046,6 +3244,11 @@ def main() -> None:
     if manual_ltv > 0:
         kpi_overrides["ltv"] = manual_ltv
 
+    kpi_overrides["inventory_turnover_days"] = manual_inventory_days
+    kpi_overrides["stockout_rate"] = manual_stockout_pct / 100 if manual_stockout_pct >= 0 else np.nan
+    kpi_overrides["training_sessions"] = manual_training_sessions
+    kpi_overrides["new_product_count"] = manual_new_products
+
     kpis = calculate_kpis(merged_df, subscription_df, overrides=kpi_overrides)
     kpi_history_df = build_kpi_history_df(merged_df, subscription_df, kpi_overrides)
     kpi_period_summary = aggregate_kpi_history(kpi_history_df, selected_freq)
@@ -3121,60 +3324,116 @@ def main() -> None:
             period_end = pd.to_datetime(selected_kpi_row["period_end"]).date()
 
             sales_delta_text = None
-            gross_delta_text = None
             if not period_row.empty:
                 sales_mom_val = period_row["sales_mom"].iloc[0]
-                gross_mom_val = period_row["gross_mom"].iloc[0]
                 if pd.notna(sales_mom_val):
                     sales_delta_text = f"{sales_mom_val * 100:.2f}%"
-                if pd.notna(gross_mom_val):
-                    gross_delta_text = f"{gross_mom_val * 100:.2f}%"
 
-            ltv_delta_val = selected_kpi_row.get("ltv_delta")
-            ltv_delta_text = (
-                f"{ltv_delta_val:,.0f} 円" if pd.notna(ltv_delta_val) and ltv_delta_val != 0 else None
+            gross_margin_delta_text = format_delta(
+                selected_kpi_row.get("gross_margin_delta"), percentage=True
             )
-            arpu_delta_val = selected_kpi_row.get("arpu_delta")
-            arpu_delta_text = (
-                f"{arpu_delta_val:,.0f} 円" if pd.notna(arpu_delta_val) and arpu_delta_val != 0 else None
+            repeat_delta_text = format_delta(
+                selected_kpi_row.get("repeat_delta"), percentage=True
             )
-            churn_delta_val = selected_kpi_row.get("churn_delta")
-            churn_delta_text = (
-                f"{churn_delta_val * 100:.2f} pt"
-                if pd.notna(churn_delta_val) and churn_delta_val != 0
-                else None
+            churn_delta_text = format_delta(
+                selected_kpi_row.get("churn_delta"), percentage=True
+            )
+            inventory_delta_text = format_delta(
+                selected_kpi_row.get("inventory_turnover_delta"), digits=1, unit=" 日"
+            )
+            stockout_delta_text = format_delta(
+                selected_kpi_row.get("stockout_delta"), percentage=True
+            )
+            training_delta_text = format_delta(
+                selected_kpi_row.get("training_delta"), digits=0, unit=" 回"
+            )
+            new_product_delta_text = format_delta(
+                selected_kpi_row.get("new_product_delta"), digits=0, unit=" 件"
             )
 
-            st.markdown("### 主要KPI")
-            metric_cols = st.columns([1.4, 1, 1, 1, 1])
-            metric_cols[0].metric(
-                f"{selected_granularity_label}売上高",
-                f"{selected_kpi_row['sales']:,.0f} 円" if pd.notna(selected_kpi_row["sales"]) else "-",
-                delta=sales_delta_text,
+            st.markdown("### バランスト・スコアカード（主要KPI）")
+            st.caption(
+                "社長・店長・経理の主要意思決定を支える4視点をYellowfin/Sisenseの原則に基づき整理しています。"
             )
-            metric_cols[1].metric(
-                f"{selected_granularity_label}粗利",
-                f"{selected_kpi_row['gross_profit']:,.0f} 円"
-                if pd.notna(selected_kpi_row["gross_profit"])
-                else "-",
-                delta=gross_delta_text,
-            )
-            metric_cols[2].metric(
-                "LTV",
-                f"{selected_kpi_row['ltv']:,.0f} 円" if pd.notna(selected_kpi_row["ltv"]) else "-",
-                delta=ltv_delta_text,
-            )
-            metric_cols[3].metric(
-                "ARPU",
-                f"{selected_kpi_row['arpu']:,.0f} 円" if pd.notna(selected_kpi_row["arpu"]) else "-",
-                delta=arpu_delta_text,
-            )
-            churn_value = selected_kpi_row.get("churn_rate")
-            metric_cols[4].metric(
-                "解約率",
-                f"{churn_value * 100:.2f}%" if pd.notna(churn_value) else "-",
-                delta=churn_delta_text,
-            )
+            bsc_cols = st.columns(4)
+            with bsc_cols[0]:
+                render_bsc_card(
+                    title="財務",
+                    icon="💰",
+                    subtitle="社長: キャッシュと粗利の即時判断",
+                    metrics=[
+                        {
+                            "label": f"{selected_granularity_label}売上高",
+                            "value": format_currency(selected_kpi_row.get("sales")),
+                            "delta": sales_delta_text,
+                        },
+                        {
+                            "label": "粗利益率",
+                            "value": format_percent(selected_kpi_row.get("gross_margin_rate")),
+                            "delta": gross_margin_delta_text,
+                        },
+                    ],
+                )
+            with bsc_cols[1]:
+                render_bsc_card(
+                    title="顧客",
+                    icon="🤝",
+                    subtitle="店長: リピート基盤の維持状況",
+                    metrics=[
+                        {
+                            "label": "リピーター比率",
+                            "value": format_percent(selected_kpi_row.get("repeat_rate")),
+                            "delta": repeat_delta_text,
+                        },
+                        {
+                            "label": "解約率",
+                            "value": format_percent(selected_kpi_row.get("churn_rate")),
+                            "delta": churn_delta_text,
+                        },
+                    ],
+                )
+            with bsc_cols[2]:
+                render_bsc_card(
+                    title="内部プロセス",
+                    icon="🏭",
+                    subtitle="現場: 欠品・在庫のコントロール",
+                    metrics=[
+                        {
+                            "label": "在庫回転日数",
+                            "value": format_number(
+                                selected_kpi_row.get("inventory_turnover_days"), digits=1, unit=" 日"
+                            ),
+                            "delta": inventory_delta_text,
+                        },
+                        {
+                            "label": "欠品率",
+                            "value": format_percent(selected_kpi_row.get("stockout_rate")),
+                            "delta": stockout_delta_text,
+                        },
+                    ],
+                )
+            with bsc_cols[3]:
+                render_bsc_card(
+                    title="学習と成長",
+                    icon="📚",
+                    subtitle="経理・人事: 組織能力の強化",
+                    metrics=[
+                        {
+                            "label": "研修実施数",
+                            "value": format_number(
+                                selected_kpi_row.get("training_sessions"), digits=0, unit=" 回"
+                            ),
+                            "delta": training_delta_text,
+                        },
+                        {
+                            "label": "新商品開発数",
+                            "value": format_number(
+                                selected_kpi_row.get("new_product_count"), digits=0, unit=" 件"
+                            ),
+                            "delta": new_product_delta_text,
+                        },
+                    ],
+                )
 
             st.caption(f"対象期間: {period_start} 〜 {period_end}")
 
