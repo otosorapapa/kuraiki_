@@ -271,12 +271,20 @@ STATUS_PILL_DETAILS: Dict[str, Tuple[str, str]] = {
 }
 
 
-MAIN_NAV_STRUCTURE: List[Tuple[str, List[str]]] = [
-    ("ホーム", ["ダッシュボード"]),
-    ("分析", ["売上分析", "利益分析", "財務モニタリング"]),
-    ("レポート", ["KPIモニタリング"]),
-    ("データ入力", ["データアップロード/管理"]),
+PRIMARY_NAV_ITEMS: List[Dict[str, str]] = [
+    {"key": "dashboard", "label": "Dashboard", "icon": "📊"},
+    {"key": "sales", "label": "売上", "icon": "🛒"},
+    {"key": "gross", "label": "粗利", "icon": "💹"},
+    {"key": "inventory", "label": "在庫", "icon": "📦"},
+    {"key": "cash", "label": "資金", "icon": "💰"},
+    {"key": "kpi", "label": "KPI", "icon": "📈"},
+    {"key": "data", "label": "データ管理", "icon": "🗂"},
 ]
+
+NAV_LABEL_LOOKUP: Dict[str, str] = {item["key"]: item["label"] for item in PRIMARY_NAV_ITEMS}
+NAV_OPTION_LOOKUP: Dict[str, str] = {
+    item["key"]: f"{item['icon']} {item['label']}" for item in PRIMARY_NAV_ITEMS
+}
 
 TUTORIAL_INDEX: List[Dict[str, Any]] = [
     {
@@ -296,6 +304,8 @@ ACCENT_BLUE = "#1E88E5"
 ACCENT_BLUE_STRONG = "#15579B"
 ACCENT_ORANGE = "#FF7A45"
 ACCENT_ORANGE_STRONG = "#C24C1D"
+SUCCESS_COLOR = "#2E7D32"
+ERROR_COLOR = "#D32F2F"
 INK_INVERSE = "#F5F8FF"
 INK_MUTED = "#C7D3E7"
 MCKINSEY_FONT_STACK = (
@@ -321,6 +331,8 @@ PLOTLY_COLORWAY = [
     YOY_SERIES_COLOR,
     ACCENT_ORANGE,
 ]
+
+HEATMAP_BLUE_SCALE = [[0.0, "#E3F2FD"], [0.5, "#64B5F6"], [1.0, "#0D47A1"]]
 
 
 KGI_TARGETS = {
@@ -1295,6 +1307,13 @@ def inject_mckinsey_style() -> None:
             color: var(--ink-strong);
         }}
 
+        .main-nav-block div[role="radiogroup"] label[aria-checked="true"] {{
+            background: var(--color-primary-alt);
+            color: var(--ink-inverse);
+            border-color: rgba(255,255,255,0.6);
+            box-shadow: 0 10px 24px rgba(12,50,90,0.35);
+        }}
+
         .main-nav-block div[role="radiogroup"] label:hover {{
             border-color: rgba(30,92,195,0.45);
         }}
@@ -1634,12 +1653,13 @@ def reset_filters(defaults: Dict[str, Any]) -> None:
     st.experimental_rerun()
 
 
-def jump_to_section(main_label: str, section_label: Optional[str] = None) -> None:
+def jump_to_section(section_key: str) -> None:
     """ナビゲーションの選択を強制的に切り替えてリロードする。"""
 
-    st.session_state["main_nav"] = main_label
-    if section_label:
-        st.session_state[f"sub_nav_{main_label}"] = section_label
+    if section_key not in NAV_OPTION_LOOKUP:
+        return
+    st.session_state["main_nav"] = section_key
+    st.session_state["main_nav_display"] = NAV_OPTION_LOOKUP[section_key]
     st.experimental_rerun()
 
 
@@ -3200,51 +3220,41 @@ def render_bsc_card(
     st.markdown("</div>", unsafe_allow_html=True)
 
 
-def _nav_sections_lookup() -> Dict[str, List[str]]:
-    """メインメニューごとのセクション一覧を返す。"""
-
-    return {label: sections for label, sections in MAIN_NAV_STRUCTURE}
-
-
 def render_navigation() -> Tuple[str, str]:
-    """トップレベルのナビゲーションを描画し、選択されたセクションを返す。"""
+    """トップレベルのナビゲーションを描画し、選択されたキーと表示ラベルを返す。"""
 
-    nav_lookup = _nav_sections_lookup()
-    main_labels = list(nav_lookup.keys())
+    label_options = list(NAV_OPTION_LOOKUP.values())
+    label_to_key = {value: key for key, value in NAV_OPTION_LOOKUP.items()}
 
-    selected_main = st.radio(
+    current_key = st.session_state.get("main_nav", PRIMARY_NAV_ITEMS[0]["key"])
+    if current_key not in NAV_OPTION_LOOKUP:
+        current_key = PRIMARY_NAV_ITEMS[0]["key"]
+    current_label = NAV_OPTION_LOOKUP[current_key]
+    current_index = label_options.index(current_label) if current_label in label_options else 0
+
+    selected_label = st.radio(
         "主要メニュー",
-        options=main_labels,
+        options=label_options,
         horizontal=True,
-        key="main_nav",
+        index=current_index,
+        key="main_nav_display",
         label_visibility="collapsed",
     )
 
-    sections = nav_lookup[selected_main]
-    sub_key = f"sub_nav_{selected_main}"
-    if len(sections) == 1:
-        st.session_state[sub_key] = sections[0]
-        return selected_main, sections[0]
-
-    if sub_key not in st.session_state or st.session_state[sub_key] not in sections:
-        st.session_state[sub_key] = sections[0]
-
-    selected_section = st.radio(
-        "セクション選択",
-        options=sections,
-        horizontal=True,
-        key=sub_key,
-        label_visibility="collapsed",
-    )
-    return selected_main, selected_section
+    selected_key = label_to_key[selected_label]
+    st.session_state["main_nav"] = selected_key
+    st.session_state["main_nav_display"] = selected_label
+    return selected_key, NAV_LABEL_LOOKUP[selected_key]
 
 
-def render_breadcrumb(main_label: str, section_label: Optional[str]) -> None:
+def render_breadcrumb(current_label: str) -> None:
     """現在地がわかるパンくずリストを表示する。"""
 
-    parts = [main_label]
-    if section_label and section_label != main_label:
-        parts.append(section_label)
+    root_label = NAV_LABEL_LOOKUP.get("dashboard", "Dashboard")
+    if current_label == root_label:
+        parts = [current_label]
+    else:
+        parts = [root_label, current_label]
     breadcrumb = " / ".join(parts)
     st.markdown(
         f"<div class='breadcrumb-trail'>{html.escape(breadcrumb)}</div>",
@@ -3756,6 +3766,82 @@ def render_first_level_kpi_strip(
         "<div class='kpi-strip'>{}</div>".format("".join(cards_html)),
         unsafe_allow_html=True,
     )
+
+
+def render_kpi_overview_tab(kpi_period_summary: pd.DataFrame) -> None:
+    """KPIタブ向けに主要指標のトレンドとテーブルを表示する。"""
+
+    if kpi_period_summary is None or kpi_period_summary.empty:
+        st.info("KPI履歴が読み込まれていません。")
+        return
+
+    history = kpi_period_summary.tail(12).copy()
+    history["period_start"] = pd.to_datetime(history["period_start"])
+    history["period_label"] = history["period_label"].astype(str)
+
+    metric_configs = [
+        ("ltv", "LTV", "円", SALES_SERIES_COLOR, False),
+        ("arpu", "ARPU", "円", GROSS_SERIES_COLOR, False),
+        ("repeat_rate", "リピート率", "％", ACCENT_BLUE, True),
+        ("churn_rate", "チャーン率", "％", ACCENT_ORANGE, True),
+    ]
+    chart_columns = st.columns(2)
+    for (metric, label, unit, color, is_percent), column in zip(metric_configs, chart_columns * 2):
+        if metric not in history.columns:
+            continue
+        series = history[["period_start", "period_label", metric]].dropna()
+        if series.empty:
+            column.info(f"{label}の履歴データが不足しています。")
+            continue
+        encoding = alt.Y(
+            f"{metric}:Q",
+            title=f"{label} ({unit})",
+            axis=alt.Axis(format=".1%" if is_percent else ",.0f"),
+        )
+        chart = (
+            alt.Chart(series)
+            .mark_line(color=color, point=alt.OverlayMarkDef(size=60, filled=True))
+            .encode(
+                x=alt.X("period_start:T", title="期間", axis=alt.Axis(format="%Y-%m", labelOverlap=True)),
+                y=encoding,
+                tooltip=[
+                    alt.Tooltip("period_label:N", title="期間"),
+                    alt.Tooltip(
+                        f"{metric}:Q",
+                        title=label,
+                        format=".1%" if is_percent else ",.0f",
+                    ),
+                ],
+            )
+            .properties(title=f"{label}の推移", height=260)
+        )
+        column.altair_chart(apply_altair_theme(chart), use_container_width=True)
+
+    table_columns = [
+        "period_label",
+        "sales",
+        "gross_profit",
+        "ltv",
+        "arpu",
+        "repeat_rate",
+        "churn_rate",
+    ]
+    available_columns = [col for col in table_columns if col in history.columns]
+    if available_columns:
+        display_df = history[available_columns].rename(columns={"period_label": "期間"}).copy()
+        for currency_col in ["sales", "gross_profit", "ltv", "arpu"]:
+            if currency_col in display_df.columns:
+                display_df[currency_col] = display_df[currency_col].map(
+                    lambda v: f"{v:,.0f}" if pd.notna(v) else "-"
+                )
+        for pct_col in ["repeat_rate", "churn_rate"]:
+            if pct_col in display_df.columns:
+                display_df[pct_col] = display_df[pct_col].map(
+                    lambda v: f"{v * 100:.1f}%" if pd.notna(v) else "-"
+                )
+        st.dataframe(display_df, use_container_width=True)
+    else:
+        st.info("KPIサマリーを表示する列が不足しています。")
 
 
 def render_sales_tab(
@@ -4286,6 +4372,227 @@ def render_gross_tab(
                     st.button("PDF出力 (準備中)", disabled=True)
 
 
+def render_store_comparison_chart(analysis_df: pd.DataFrame, fixed_cost: float) -> None:
+    """店舗別の売上・粗利・営業利益(推計)を横棒で比較表示する。"""
+
+    if analysis_df is None or analysis_df.empty:
+        st.info("店舗別の比較に利用できるデータがありません。")
+        return
+    if "store" not in analysis_df.columns or analysis_df["store"].nunique(dropna=True) <= 1:
+        st.caption("※ 店舗情報が不足しているため全社集計のみを表示しています。")
+        return
+
+    store_summary = (
+        analysis_df.groupby("store")[["sales_amount", "net_gross_profit"]]
+        .sum()
+        .reset_index()
+    )
+    if store_summary.empty:
+        st.info("店舗別に集計できる売上データがありません。")
+        return
+
+    total_sales = float(store_summary["sales_amount"].sum())
+    if total_sales <= 0:
+        st.info("売上高が0のため比較グラフを表示できません。")
+        return
+
+    fixed_cost_value = float(fixed_cost or 0.0)
+    allocation_ratio = store_summary["sales_amount"] / total_sales
+    store_summary["estimated_operating_profit"] = (
+        store_summary["net_gross_profit"] - allocation_ratio * fixed_cost_value
+    )
+
+    metric_map = {
+        "sales_amount": "売上高",
+        "net_gross_profit": "粗利",
+        "estimated_operating_profit": "営業利益(推計)",
+    }
+    melted = store_summary.melt(
+        id_vars="store",
+        value_vars=list(metric_map.keys()),
+        var_name="metric",
+        value_name="value",
+    )
+    if melted.empty:
+        st.info("店舗別の比較に利用できる指標がありません。")
+        return
+
+    melted["metric_label"] = melted["metric"].map(metric_map)
+    color_sequence = [SALES_SERIES_COLOR, GROSS_SERIES_COLOR, ACCENT_ORANGE]
+    comparison_chart = px.bar(
+        melted,
+        x="value",
+        y="store",
+        color="metric_label",
+        orientation="h",
+        barmode="group",
+        labels={"value": "金額（円）", "store": "店舗", "metric_label": "指標"},
+        color_discrete_sequence=color_sequence,
+    )
+    comparison_chart = apply_chart_theme(comparison_chart)
+    comparison_chart.update_layout(
+        legend=dict(title="指標", orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1.0),
+        xaxis_title="金額（円）",
+        yaxis_title="店舗",
+    )
+    comparison_chart.update_traces(hovertemplate="店舗=%{y}<br>%{legendgroup}=%{x:,.0f}円<extra></extra>")
+    st.plotly_chart(comparison_chart, use_container_width=True)
+
+    top_store = store_summary.sort_values("sales_amount", ascending=False).iloc[0]
+    st.caption(
+        f"売上トップ店舗は{top_store['store']}で{top_store['sales_amount']:,.0f}円、推計営業利益は{top_store['estimated_operating_profit']:,.0f}円です。"
+    )
+
+
+def render_abc_analysis(df: pd.DataFrame) -> None:
+    """ABC分析を縦棒と累積折れ線の組み合わせで描画する。"""
+
+    if df is None or df.empty or "product_name" not in df.columns:
+        st.info("ABC分析に利用できる商品データがありません。")
+        return
+
+    product_sales = (
+        df.groupby(["product_code", "product_name"])["sales_amount"]
+        .sum()
+        .reset_index()
+        .sort_values("sales_amount", ascending=False)
+    )
+    if product_sales.empty:
+        st.info("ABC分析に利用できる売上データがありません。")
+        return
+
+    product_sales["累積売上"] = product_sales["sales_amount"].cumsum()
+    total_sales = float(product_sales["sales_amount"].sum())
+    if total_sales <= 0:
+        st.info("売上総額が0のためABC分析を表示できません。")
+        return
+
+    product_sales["累積構成比"] = product_sales["累積売上"] / total_sales
+    product_sales["ランク"] = np.where(
+        product_sales["累積構成比"] <= 0.8,
+        "A",
+        np.where(product_sales["累積構成比"] <= 0.95, "B", "C"),
+    )
+    product_sales = product_sales.head(30)
+
+    rank_colors = {"A": SALES_SERIES_COLOR, "B": ACCENT_ORANGE, "C": YOY_SERIES_COLOR}
+    bar_colors = [rank_colors.get(rank, SALES_SERIES_COLOR) for rank in product_sales["ランク"]]
+
+    fig = go.Figure()
+    fig.add_bar(
+        x=product_sales["product_name"],
+        y=product_sales["sales_amount"],
+        name="売上高",
+        marker_color=bar_colors,
+        hovertemplate="商品=%{x}<br>売上高=%{y:,.0f}円<extra></extra>",
+    )
+    fig.add_scatter(
+        x=product_sales["product_name"],
+        y=product_sales["累積構成比"] * 100,
+        mode="lines+markers",
+        name="累積構成比",
+        yaxis="y2",
+        line=dict(color=GROSS_SERIES_COLOR, width=3),
+        marker=dict(size=8),
+        hovertemplate="商品=%{x}<br>累積構成比=%{y:.1f}%<extra></extra>",
+    )
+    fig.update_layout(
+        xaxis_title="商品",
+        yaxis=dict(title="売上高（円）", showgrid=True, gridcolor="rgba(11,31,51,0.08)"),
+        yaxis2=dict(
+            title="累積構成比（％）",
+            overlaying="y",
+            side="right",
+            range=[0, 110],
+            tickformat=".0f",
+            showgrid=False,
+        ),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1.0),
+        margin=dict(l=40, r=60, t=60, b=80),
+    )
+    fig.add_shape(
+        type="line",
+        x0=-0.5,
+        x1=len(product_sales) - 0.5,
+        y0=80,
+        y1=80,
+        yref="y2",
+        line=dict(color=BASELINE_SERIES_COLOR, dash="dash"),
+    )
+    fig.update_layout(plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)")
+    st.plotly_chart(fig, use_container_width=True)
+
+    boundary_index = product_sales[product_sales["累積構成比"] > 0.8].index.min()
+    if boundary_index is not None and not np.isnan(boundary_index):
+        boundary_product = product_sales.iloc[int(boundary_index)]
+        st.caption(
+            f"累積構成比80%の境界は{boundary_product['product_name']}で、売上高は{boundary_product['sales_amount']:,.0f}円です。"
+        )
+
+
+def render_inventory_heatmap(
+    merged_df: pd.DataFrame, selected_kpi_row: Optional[pd.Series]
+) -> None:
+    """店舗×カテゴリの在庫状況をヒートマップで表示する。"""
+
+    if merged_df is None or merged_df.empty:
+        st.info("在庫ヒートマップを表示するデータがありません。")
+        return
+    required_columns = {"store", "category", "estimated_cost"}
+    if not required_columns.issubset(merged_df.columns):
+        st.info("店舗別・カテゴリ別の在庫を推計するための列が不足しています。")
+        return
+
+    turnover_days = None
+    if selected_kpi_row is not None:
+        turnover_days = selected_kpi_row.get("inventory_turnover_days")
+    if turnover_days is None or pd.isna(turnover_days) or float(turnover_days) <= 0:
+        turnover_days = 45.0
+
+    inventory_value = (
+        merged_df.groupby(["store", "category"])["estimated_cost"].sum().reset_index()
+    )
+    if inventory_value.empty:
+        st.info("在庫を推計できるカテゴリデータがありません。")
+        return
+
+    inventory_value["推定在庫金額"] = (
+        inventory_value["estimated_cost"] / 30.0 * float(turnover_days)
+    )
+    heatmap_source = inventory_value.pivot(
+        index="store", columns="category", values="推定在庫金額"
+    ).fillna(0.0)
+    if heatmap_source.empty:
+        st.info("在庫ヒートマップを表示するデータが不足しています。")
+        return
+
+    fig = go.Figure(
+        data=
+        [
+            go.Heatmap(
+                z=heatmap_source.values,
+                x=heatmap_source.columns.astype(str),
+                y=heatmap_source.index.astype(str),
+                colorscale=HEATMAP_BLUE_SCALE,
+                colorbar=dict(title="推定在庫金額（円）", tickformat=",.0f"),
+                hovertemplate="店舗=%{y}<br>カテゴリ=%{x}<br>推定在庫=%{z:,.0f}円<extra></extra>",
+            )
+        ]
+    )
+    fig.update_layout(
+        height=420,
+        xaxis_title="カテゴリ",
+        yaxis_title="店舗",
+        margin=dict(l=60, r=60, t=50, b=60),
+        plot_bgcolor="rgba(0,0,0,0)",
+        paper_bgcolor="rgba(0,0,0,0)",
+    )
+    st.plotly_chart(fig, use_container_width=True)
+    st.caption(
+        f"在庫回転日数{float(turnover_days):.0f}日を基準に推定した金額です。濃い青は安全在庫を上回る余剰在庫を示唆します。"
+    )
+
+
 def render_inventory_tab(
     merged_df: pd.DataFrame,
     kpi_period_summary: pd.DataFrame,
@@ -4447,6 +4754,11 @@ def render_inventory_tab(
             )
         else:
             chart_cols[1].info("商品別の販売数量が算出できませんでした。")
+        st.markdown(
+            "<div class='chart-section__header'><div class='chart-section__title'>在庫ヒートマップ</div></div>",
+            unsafe_allow_html=True,
+        )
+        render_inventory_heatmap(merged_df, selected_kpi_row)
         st.markdown("</div>", unsafe_allow_html=True)
 
     with st.expander("在庫推計テーブル", expanded=False):
@@ -4644,6 +4956,148 @@ def render_cash_tab(
                 download_button_from_df("CSV出力", display_df, "cash_flow_plan.csv")
             with toolbar[1]:
                 st.button("PDF出力 (準備中)", disabled=True)
+
+
+def render_fixed_cost_breakdown(
+    expense_df: Optional[pd.DataFrame], fixed_cost: float
+) -> None:
+    """固定費の内訳を積み上げ棒グラフで表示する。"""
+
+    if expense_df is not None and isinstance(expense_df, pd.DataFrame) and not expense_df.empty:
+        working = expense_df.copy()
+    else:
+        working = pd.DataFrame(EXPENSE_PLAN_TEMPLATES.get("スリム型コスト構成", []))
+
+    if working.empty:
+        st.info("固定費内訳を表示するデータがありません。")
+        return
+
+    rename_map = {col: col for col in ["費目", "月次金額", "区分"] if col in working.columns}
+    working = working.rename(columns=rename_map)
+    if "区分" in working.columns:
+        working = working[working["区分"].isin(["固定費", "固定費用", "固定費用計", "固定"])]
+    if working.empty:
+        st.info("固定費区分のデータがありません。")
+        return
+
+    breakdown = working.groupby("費目")["月次金額"].sum().reset_index()
+    total_current = float(breakdown["月次金額"].sum())
+    target_total = float(fixed_cost or 0.0)
+    if total_current > 0 and target_total > 0:
+        breakdown["月次金額"] = breakdown["月次金額"] * target_total / total_current
+
+    breakdown["店舗"] = "全社"
+    palette = PLOTLY_COLORWAY + [ACCENT_BLUE_STRONG, SECONDARY_SLATE]
+    fig = go.Figure()
+    for idx, row in enumerate(breakdown.itertuples()):
+        fig.add_bar(
+            name=str(row.費目),
+            x=[row.店舗],
+            y=[row.月次金額],
+            marker_color=palette[idx % len(palette)],
+            hovertemplate="費目=%{fullData.name}<br>金額=%{y:,.0f}円<extra></extra>",
+        )
+
+    if target_total > 0:
+        fig.add_scatter(
+            x=["全社"],
+            y=[target_total],
+            name="固定費目標",
+            mode="lines+markers",
+            line=dict(color=BASELINE_SERIES_COLOR, dash="dash"),
+            marker=dict(size=10, color=BASELINE_SERIES_COLOR),
+            hovertemplate="固定費目標=%{y:,.0f}円<extra></extra>",
+        )
+
+    fig.update_layout(
+        barmode="stack",
+        xaxis_title="店舗",
+        yaxis_title="金額（円）",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1.0),
+        plot_bgcolor="rgba(0,0,0,0)",
+        paper_bgcolor="rgba(0,0,0,0)",
+        margin=dict(l=40, r=40, t=60, b=60),
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+    top_item = breakdown.sort_values("月次金額", ascending=False).iloc[0]
+    st.caption(
+        f"主要固定費は{top_item['費目']}で{top_item['月次金額']:,.0f}円です。目標固定費は{target_total:,.0f}円に調整しています。"
+    )
+
+
+def render_profit_meter(pl_result: pd.DataFrame, base_pl: Dict[str, float]) -> None:
+    """シナリオ売上の進捗をゲージ表示し、損益状況を補足する。"""
+
+    if pl_result is None or pl_result.empty:
+        st.info("シミュレーション結果がまだ計算されていません。")
+        return
+
+    try:
+        scenario_sales = float(
+            pl_result.loc[pl_result["項目"] == "売上高", "シナリオ"].iloc[0]
+        )
+        scenario_profit = float(
+            pl_result.loc[pl_result["項目"] == "営業利益", "シナリオ"].iloc[0]
+        )
+    except IndexError:
+        st.info("シミュレーション指標が不足しています。")
+        return
+
+    base_sales = float(base_pl.get("sales", 0.0))
+    base_cogs = float(base_pl.get("cogs", 0.0))
+    base_sga = float(base_pl.get("sga", 0.0))
+    contribution = 0.0
+    if base_sales > 0:
+        contribution = 1.0 - (base_cogs / base_sales if base_sales else 0.0)
+    break_even = None
+    if contribution > 0:
+        break_even = base_sga / contribution
+
+    gauge_upper = max(scenario_sales, break_even or 0.0, base_sales) * 1.2
+    if gauge_upper <= 0:
+        gauge_upper = max(scenario_sales, 1.0)
+
+    steps = []
+    if break_even and gauge_upper > break_even:
+        steps = [
+            {"range": [0, break_even], "color": "rgba(30,136,229,0.35)"},
+            {"range": [break_even, gauge_upper], "color": "rgba(46,125,50,0.3)"},
+        ]
+
+    indicator = go.Figure(
+        go.Indicator(
+            mode="gauge+number",
+            value=scenario_sales,
+            number=dict(valueformat=",.0f", suffix=" 円"),
+            gauge=dict(
+                axis=dict(range=[0, gauge_upper], tickformat=",.0f"),
+                bar=dict(color=SALES_SERIES_COLOR),
+                steps=steps,
+                threshold=dict(
+                    line=dict(
+                        color=SUCCESS_COLOR if scenario_sales >= (break_even or 0) else ERROR_COLOR,
+                        width=4,
+                    ),
+                    value=break_even if break_even is not None else scenario_sales,
+                ),
+            ),
+        )
+    )
+    indicator.update_layout(height=340, margin=dict(t=40, b=20, l=20, r=20))
+    st.plotly_chart(indicator, use_container_width=True)
+
+    profit_text = (
+        f"営業利益は{scenario_profit:,.0f}円" if pd.notna(scenario_profit) else "営業利益は算出できません"
+    )
+    if break_even is not None:
+        st.caption(
+            f"損益分岐点売上は約{break_even:,.0f}円です。現在のシナリオ売上{scenario_sales:,.0f}円では{profit_text}となります。"
+        )
+    else:
+        st.caption(
+            f"現状の原価率では損益分岐点を計算できませんが、シナリオ売上{scenario_sales:,.0f}円で{profit_text}です。"
+        )
 
 
 def render_data_status_section(
@@ -5349,16 +5803,16 @@ def main() -> None:
 
     with st.container():
         st.markdown("<div class='surface-card main-nav-block'>", unsafe_allow_html=True)
-        selected_main, selected_section = render_navigation()
+        selected_nav_key, selected_nav_label = render_navigation()
         st.markdown("</div>", unsafe_allow_html=True)
 
-    render_breadcrumb(selected_main, selected_section)
+    render_breadcrumb(selected_nav_label)
 
     if search_query:
         render_global_search_results(search_query, merged_df)
         st.divider()
 
-    if selected_section == "ダッシュボード":
+    if selected_nav_key == "dashboard":
         st.subheader("経営ダッシュボード")
         if kpi_period_summary.empty:
             st.info(
@@ -5391,7 +5845,7 @@ def main() -> None:
             ):
                 display_state_message(
                     "warning_gross_margin",
-                    action=lambda: jump_to_section("分析", "利益分析"),
+                    action=lambda: jump_to_section("gross"),
                     action_label="粗利タブを開く",
                     action_key="warning_gross_margin_button",
                 )
@@ -5403,10 +5857,15 @@ def main() -> None:
 
             render_first_level_kpi_strip(kpi_period_summary, selected_kpi_row)
 
-            tab_labels = ["売上", "粗利", "在庫", "資金"]
-            sales_tab, gross_tab, inventory_tab, cash_tab = st.tabs(
-                [f"📈 {label}" for label in tab_labels]
-            )
+            tab_labels = ["売上", "粗利", "在庫", "資金", "KPI", "データ管理"]
+            (
+                sales_tab,
+                gross_tab,
+                inventory_tab,
+                cash_tab,
+                kpi_tab,
+                data_tab,
+            ) = st.tabs([f"📈 {label}" for label in tab_labels])
             with sales_tab:
                 render_sales_tab(
                     merged_df,
@@ -5421,17 +5880,19 @@ def main() -> None:
                 render_inventory_tab(merged_df, kpi_period_summary, selected_kpi_row)
             with cash_tab:
                 render_cash_tab(default_cash_plan, default_cash_forecast, starting_cash)
-
-            render_data_status_section(
-                merged_df,
-                cost_df,
-                subscription_df,
-                use_sample_data=use_sample_data,
-                automated_sales_data=automated_sales_data,
-            )
+            with kpi_tab:
+                render_kpi_overview_tab(kpi_period_summary)
+            with data_tab:
+                render_data_status_section(
+                    merged_df,
+                    cost_df,
+                    subscription_df,
+                    use_sample_data=use_sample_data,
+                    automated_sales_data=automated_sales_data,
+                )
             st.divider()
 
-    elif selected_section == "売上分析":
+    elif selected_nav_key == "sales":
         st.subheader("売上分析")
         if merged_df.empty:
             st.info("売上データがありません。")
@@ -5594,7 +6055,13 @@ def main() -> None:
                 )
                 st.dataframe(yoy_table)
 
-    elif selected_section == "利益分析":
+            st.markdown("### 店舗別売上・利益比較")
+            render_store_comparison_chart(analysis_df, fixed_cost)
+
+            st.markdown("### ABC分析（売上上位30商品）")
+            render_abc_analysis(analysis_df)
+
+    elif selected_nav_key == "gross":
         st.subheader("利益分析")
         if merged_df.empty:
             st.info("データがありません。")
@@ -5844,8 +6311,12 @@ def main() -> None:
             else:
                 st.info("表示する高利益商材がありません。")
 
-    elif selected_section == "財務モニタリング":
+    elif selected_nav_key == "cash":
         st.subheader("財務モニタリング")
+        plan_state = st.session_state.get("plan_wizard")
+        expense_table_state = None
+        if isinstance(plan_state, dict):
+            expense_table_state = plan_state.get("expense_table")
         st.markdown("売上計画や広告費を調整してPL・キャッシュフローをシミュレートします。")
 
         col1, col2, col3, col4 = st.columns(4)
@@ -5868,6 +6339,8 @@ def main() -> None:
             f"{pl_result.loc[pl_result['項目'] == '営業利益', 'シナリオ'].iloc[0]:,.0f} 円",
             delta=f"{pl_result.loc[pl_result['項目'] == '営業利益', '増減'].iloc[0]:,.0f} 円",
         )
+
+        render_profit_meter(pl_result, base_pl)
 
         plan_edit = create_default_cashflow_plan(merged_df).copy()
         plan_edit["month"] = plan_edit["month"].astype(str)
@@ -5900,7 +6373,15 @@ def main() -> None:
         else:
             st.info("キャッシュフロープランが未設定です。")
 
-    elif selected_section == "KPIモニタリング":
+        st.markdown("<div class='chart-section'>", unsafe_allow_html=True)
+        st.markdown(
+            "<div class='chart-section__header'><div class='chart-section__title'>固定費内訳</div></div>",
+            unsafe_allow_html=True,
+        )
+        render_fixed_cost_breakdown(expense_table_state, fixed_cost)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    elif selected_nav_key == "kpi":
         st.subheader("KPIモニタリング")
         if kpi_history_df.empty:
             st.info("KPI履歴がありません。")
@@ -6204,7 +6685,7 @@ def main() -> None:
             else:
                 st.caption("リピート顧客の平均売上を算出できなかったため、金額の試算は参考値です。")
 
-    elif selected_section == "データアップロード/管理":
+    elif selected_nav_key == "data":
         st.subheader("データアップロード/管理")
         st.markdown(
             """
