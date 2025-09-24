@@ -4048,6 +4048,17 @@ def render_gross_tab(
         )
         latest_periods = period_summary.tail(12).copy()
         latest_periods["period_start"] = pd.to_datetime(latest_periods["period_start"])
+
+        if "gross_margin_rate" not in latest_periods.columns:
+            if {"net_gross_profit", "sales_amount"}.issubset(latest_periods.columns):
+                latest_periods["gross_margin_rate"] = np.where(
+                    latest_periods["sales_amount"] != 0,
+                    latest_periods["net_gross_profit"] / latest_periods["sales_amount"],
+                    np.nan,
+                )
+            else:
+                latest_periods["gross_margin_rate"] = np.nan
+
         latest_periods["gross_margin_pct"] = latest_periods["gross_margin_rate"] * 100
 
         gross_bar = alt.Chart(latest_periods).mark_bar(color=GROSS_SERIES_COLOR).encode(
