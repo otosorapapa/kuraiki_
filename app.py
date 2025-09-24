@@ -3,6 +3,7 @@ from __future__ import annotations
 
 # TODO: Streamlit UIコンポーネントを使ってダッシュボードを構築
 import html
+import hashlib
 import io
 from datetime import date, datetime
 from typing import Any, Dict, List, Optional, Tuple
@@ -58,6 +59,110 @@ PERIOD_YOY_LAG: Dict[str, int] = {
     "W-MON": 52,
     "Q": 4,
     "Y": 1,
+}
+
+
+PLAN_WIZARD_STEPS: List[Dict[str, str]] = [
+    {
+        "title": "基本情報入力",
+        "description": "会社名や計画期間を設定し、計画の前提条件を整理します。",
+    },
+    {
+        "title": "売上予測",
+        "description": "チャネル別の売上計画をCSV取り込みやテンプレートで作成します。",
+    },
+    {
+        "title": "経費入力",
+        "description": "固定費・変動費のテンプレートや自動補完を使ってコスト計画を整えます。",
+    },
+    {
+        "title": "財務指標計算",
+        "description": "売上と経費から利益率などの主要指標を自動計算します。",
+    },
+    {
+        "title": "結果確認",
+        "description": "入力内容を確認し、計画サマリーを共有用に出力します。",
+    },
+]
+
+
+SALES_PLAN_COLUMNS = ["項目", "月次売上", "チャネル"]
+EXPENSE_PLAN_COLUMNS = ["費目", "月次金額", "区分"]
+
+COMMON_SALES_ITEMS = [
+    "自社サイト売上",
+    "楽天市場売上",
+    "Amazon売上",
+    "Yahoo!ショッピング売上",
+    "サブスク売上",
+    "卸売売上",
+    "定期便アップセル",
+    "店頭販売",
+]
+
+COMMON_EXPENSE_ITEMS = [
+    "人件費",
+    "家賃",
+    "広告宣伝費",
+    "配送費",
+    "外注費",
+    "システム利用料",
+    "水道光熱費",
+    "雑費",
+]
+
+PLAN_CHANNEL_OPTIONS_BASE = [
+    "自社サイト",
+    "楽天市場",
+    "Amazon",
+    "Yahoo!ショッピング",
+    "卸売",
+    "サブスク",
+    "広告流入",
+    "その他",
+]
+
+PLAN_EXPENSE_CLASSIFICATIONS = ["固定費", "変動費", "投資", "その他"]
+
+SALES_PLAN_TEMPLATES: Dict[str, List[Dict[str, Any]]] = {
+    "EC標準チャネル構成": [
+        {"項目": "自社サイト売上", "月次売上": 1_200_000, "チャネル": "自社サイト"},
+        {"項目": "楽天市場売上", "月次売上": 950_000, "チャネル": "楽天市場"},
+        {"項目": "Amazon売上", "月次売上": 780_000, "チャネル": "Amazon"},
+        {"項目": "Yahoo!ショッピング売上", "月次売上": 320_000, "チャネル": "Yahoo!ショッピング"},
+    ],
+    "サブスク強化モデル": [
+        {"項目": "サブスク売上", "月次売上": 850_000, "チャネル": "サブスク"},
+        {"項目": "定期便アップセル", "月次売上": 420_000, "チャネル": "サブスク"},
+        {"項目": "新規顧客向け単品", "月次売上": 380_000, "チャネル": "広告流入"},
+    ],
+}
+
+EXPENSE_PLAN_TEMPLATES: Dict[str, List[Dict[str, Any]]] = {
+    "スリム型コスト構成": [
+        {"費目": "人件費", "月次金額": 600_000, "区分": "固定費"},
+        {"費目": "家賃", "月次金額": 200_000, "区分": "固定費"},
+        {"費目": "広告宣伝費", "月次金額": 180_000, "区分": "変動費"},
+        {"費目": "システム利用料", "月次金額": 90_000, "区分": "固定費"},
+    ],
+    "成長投資モデル": [
+        {"費目": "人件費", "月次金額": 850_000, "区分": "固定費"},
+        {"費目": "広告宣伝費", "月次金額": 320_000, "区分": "変動費"},
+        {"費目": "外注費", "月次金額": 160_000, "区分": "変動費"},
+        {"費目": "研究開発費", "月次金額": 120_000, "区分": "投資"},
+    ],
+}
+
+SALES_IMPORT_CANDIDATES: Dict[str, List[str]] = {
+    "項目": ["項目", "科目", "勘定科目", "売上科目", "部門"],
+    "月次売上": ["月次売上", "金額", "売上高", "予測額"],
+    "チャネル": ["チャネル", "分類", "モール", "部門", "経路"],
+}
+
+EXPENSE_IMPORT_CANDIDATES: Dict[str, List[str]] = {
+    "費目": ["費目", "科目", "勘定科目", "費用科目"],
+    "月次金額": ["月次金額", "金額", "予算額", "支出額"],
+    "区分": ["区分", "分類", "タイプ", "費用区分"],
 }
 
 
@@ -484,6 +589,1032 @@ def download_button_from_df(label: str, df: pd.DataFrame, filename: str) -> None
     buffer = io.StringIO()
     df.to_csv(buffer, index=False)
     st.download_button(label, buffer.getvalue(), file_name=filename, mime="text/csv")
+
+
+def prepare_plan_table(
+    data: Any,
+    columns: List[str],
+    numeric_columns: Optional[List[str]] = None,
+) -> pd.DataFrame:
+    """ウィザード用の表を指定の列構成と数値型に整形する。"""
+
+    numeric_columns = numeric_columns or []
+    if isinstance(data, pd.DataFrame):
+        df = data.copy()
+    elif data is None or (hasattr(data, "__len__") and len(data) == 0):
+        df = pd.DataFrame(columns=columns)
+    else:
+        df = pd.DataFrame(data)
+
+    if df.empty and not list(df.columns):
+        df = pd.DataFrame(columns=columns)
+
+    df.columns = [str(col).strip() for col in df.columns]
+    for column in columns:
+        if column not in df.columns:
+            df[column] = 0.0 if column in numeric_columns else ""
+    df = df[columns]
+    for column in numeric_columns:
+        df[column] = pd.to_numeric(df[column], errors="coerce").fillna(0.0)
+    if columns:
+        label_column = columns[0]
+        df[label_column] = df[label_column].astype(str).str.strip()
+    return df
+
+
+def reset_plan_wizard_state() -> None:
+    """経営計画ウィザードのセッション状態を初期化する。"""
+
+    default_start = date.today().replace(day=1)
+    st.session_state["plan_wizard"] = {
+        "current_step": 0,
+        "completed": False,
+        "basic_info": {
+            "company_name": "",
+            "preparer": "",
+            "fiscal_year_start": default_start,
+            "plan_period_months": 12,
+            "target_margin": 15.0,
+            "strategic_focus": "",
+        },
+        "sales_table": pd.DataFrame(columns=SALES_PLAN_COLUMNS),
+        "expense_table": pd.DataFrame(columns=EXPENSE_PLAN_COLUMNS),
+        "sales_import_hash": None,
+        "expense_import_hash": None,
+        "sales_import_feedback": None,
+        "expense_import_feedback": None,
+        "metrics": {},
+    }
+    for key in [
+        "plan_sales_editor",
+        "plan_expense_editor",
+        "plan_sales_common_select",
+        "plan_expense_common_select",
+    ]:
+        st.session_state.pop(key, None)
+
+
+def ensure_plan_wizard_state() -> Dict[str, Any]:
+    """経営計画ウィザード用のセッション情報を返す。"""
+
+    if "plan_wizard" not in st.session_state:
+        reset_plan_wizard_state()
+
+    state: Dict[str, Any] = st.session_state["plan_wizard"]
+    state.setdefault("current_step", 0)
+    state.setdefault("completed", False)
+    state.setdefault("basic_info", {})
+
+    basic_info = state["basic_info"]
+    if not isinstance(basic_info.get("fiscal_year_start"), date):
+        basic_info["fiscal_year_start"] = date.today().replace(day=1)
+    basic_info.setdefault("company_name", "")
+    basic_info.setdefault("preparer", "")
+    basic_info.setdefault("plan_period_months", 12)
+    basic_info.setdefault("target_margin", 15.0)
+    basic_info.setdefault("strategic_focus", "")
+
+    state["sales_table"] = prepare_plan_table(
+        state.get("sales_table"), SALES_PLAN_COLUMNS, ["月次売上"]
+    )
+    state["expense_table"] = prepare_plan_table(
+        state.get("expense_table"), EXPENSE_PLAN_COLUMNS, ["月次金額"]
+    )
+    state.setdefault("sales_import_hash", None)
+    state.setdefault("expense_import_hash", None)
+    state.setdefault("sales_import_feedback", None)
+    state.setdefault("expense_import_feedback", None)
+    state.setdefault("metrics", {})
+    return state
+
+
+def append_plan_rows(
+    df: pd.DataFrame,
+    label_column: str,
+    numeric_column: str,
+    default_values: Optional[Dict[str, Any]],
+    items: List[str],
+) -> Tuple[pd.DataFrame, int]:
+    """プルダウンで選択した項目を既存の表に追加する。"""
+
+    if df is None or df.empty:
+        df = pd.DataFrame(columns=[label_column, numeric_column])
+
+    existing = set(df[label_column].astype(str).str.strip())
+    new_rows: List[Dict[str, Any]] = []
+    for item in items:
+        normalized = str(item).strip()
+        if normalized and normalized not in existing:
+            row = {label_column: normalized, numeric_column: 0.0}
+            if default_values:
+                for key, value in default_values.items():
+                    row[key] = value
+            new_rows.append(row)
+            existing.add(normalized)
+
+    if new_rows:
+        df = pd.concat([df, pd.DataFrame(new_rows)], ignore_index=True)
+
+    return df, len(new_rows)
+
+
+def normalize_plan_import(
+    df: pd.DataFrame,
+    column_candidates: Dict[str, List[str]],
+    required_columns: List[str],
+    numeric_columns: List[str],
+) -> pd.DataFrame:
+    """CSV取り込み時に列名を標準化し、必要列を抽出する。"""
+
+    if df is None or df.empty:
+        raise ValueError("CSVにデータがありません。")
+
+    working = df.copy()
+    working.columns = [str(col).strip() for col in working.columns]
+    rename_map: Dict[str, str] = {}
+    for target, candidates in column_candidates.items():
+        found = next((col for col in candidates if col in working.columns), None)
+        if found:
+            rename_map[found] = target
+
+    missing = [col for col in required_columns if col not in rename_map.values()]
+    if missing:
+        raise ValueError(
+            f"必要な列({', '.join(missing)})がCSV内に見つかりませんでした。列名を確認してください。"
+        )
+
+    normalized = working[list(rename_map.keys())].rename(columns=rename_map)
+    label_column = required_columns[0]
+    normalized = normalized.dropna(subset=[label_column])
+    normalized[label_column] = normalized[label_column].astype(str).str.strip()
+    normalized = normalized[normalized[label_column] != ""]
+    for column in numeric_columns:
+        normalized[column] = pd.to_numeric(normalized[column], errors="coerce").fillna(0.0)
+    for target in column_candidates.keys():
+        if target not in normalized.columns:
+            normalized[target] = "" if target not in numeric_columns else 0.0
+    return normalized
+
+
+def import_plan_csv(
+    file_bytes: bytes,
+    column_candidates: Dict[str, List[str]],
+    required_columns: List[str],
+    numeric_columns: List[str],
+) -> Tuple[pd.DataFrame, Optional[str]]:
+    """会計ソフトからエクスポートしたCSVを標準形式に変換する。"""
+
+    if not file_bytes:
+        return pd.DataFrame(columns=required_columns), "CSVファイルが空です。"
+
+    last_error: Optional[str] = None
+    for encoding in ["utf-8-sig", "utf-8", "cp932", "shift_jis"]:
+        try:
+            text = file_bytes.decode(encoding)
+            buffer = io.StringIO(text)
+            raw_df = pd.read_csv(buffer)
+            normalized = normalize_plan_import(
+                raw_df, column_candidates, required_columns, numeric_columns
+            )
+            return normalized, None
+        except UnicodeDecodeError:
+            last_error = f"文字コード{encoding}での読み込みに失敗しました。"
+            continue
+        except pd.errors.ParserError:
+            last_error = "CSVの解析に失敗しました。フォーマットを確認してください。"
+            continue
+        except ValueError as exc:
+            return pd.DataFrame(columns=required_columns), str(exc)
+
+    return pd.DataFrame(columns=required_columns), last_error or "CSVの読み込みに失敗しました。"
+
+
+def calculate_plan_metrics_from_state(state: Dict[str, Any]) -> Dict[str, Any]:
+    """売上・経費入力から主要な財務指標を算出する。"""
+
+    sales_df = prepare_plan_table(state.get("sales_table"), SALES_PLAN_COLUMNS, ["月次売上"])
+    expense_df = prepare_plan_table(
+        state.get("expense_table"), EXPENSE_PLAN_COLUMNS, ["月次金額"]
+    )
+    state["sales_table"] = sales_df
+    state["expense_table"] = expense_df
+
+    info = state.get("basic_info", {})
+    period_months = int(info.get("plan_period_months") or 0)
+    monthly_sales = float(sales_df["月次売上"].sum()) if not sales_df.empty else 0.0
+    monthly_expenses = float(expense_df["月次金額"].sum()) if not expense_df.empty else 0.0
+    monthly_profit = monthly_sales - monthly_expenses
+    margin = monthly_profit / monthly_sales if monthly_sales else np.nan
+    target_margin_pct = float(info.get("target_margin") or 0.0)
+    margin_gap_pct = (margin * 100 - target_margin_pct) if monthly_sales else np.nan
+
+    metrics = {
+        "monthly_sales": monthly_sales,
+        "monthly_expenses": monthly_expenses,
+        "monthly_profit": monthly_profit,
+        "monthly_margin": margin,
+        "annual_sales": monthly_sales * period_months,
+        "annual_expenses": monthly_expenses * period_months,
+        "annual_profit": monthly_profit * period_months,
+        "target_margin_pct": target_margin_pct,
+        "margin_gap_pct": margin_gap_pct,
+        "period_months": period_months,
+        "burn_rate": monthly_expenses - monthly_sales,
+    }
+    state["metrics"] = metrics
+    return metrics
+
+
+def build_plan_summary_df(metrics: Dict[str, Any]) -> pd.DataFrame:
+    """計画の要約表を作成する。"""
+
+    rows: List[Dict[str, Any]] = [
+        {
+            "指標": "売上",
+            "月次計画額": metrics.get("monthly_sales", 0.0),
+            "年間計画額": metrics.get("annual_sales", 0.0),
+            "指標値": np.nan,
+        },
+        {
+            "指標": "経費",
+            "月次計画額": metrics.get("monthly_expenses", 0.0),
+            "年間計画額": metrics.get("annual_expenses", 0.0),
+            "指標値": np.nan,
+        },
+        {
+            "指標": "営業利益",
+            "月次計画額": metrics.get("monthly_profit", 0.0),
+            "年間計画額": metrics.get("annual_profit", 0.0),
+            "指標値": np.nan,
+        },
+        {
+            "指標": "月次バーンレート (費用-売上)",
+            "月次計画額": metrics.get("burn_rate", 0.0),
+            "年間計画額": metrics.get("burn_rate", 0.0)
+            * metrics.get("period_months", 0),
+            "指標値": np.nan,
+        },
+    ]
+
+    margin = metrics.get("monthly_margin")
+    if margin is not None and np.isfinite(margin):
+        rows.append(
+            {
+                "指標": "営業利益率",
+                "月次計画額": np.nan,
+                "年間計画額": np.nan,
+                "指標値": margin * 100,
+            }
+        )
+
+    margin_gap = metrics.get("margin_gap_pct")
+    if margin_gap is not None and np.isfinite(margin_gap):
+        rows.append(
+            {
+                "指標": "目標比差分 (pt)",
+                "月次計画額": np.nan,
+                "年間計画額": np.nan,
+                "指標値": margin_gap,
+            }
+        )
+
+    return pd.DataFrame(rows)
+
+
+def compute_actual_reference(actual_sales: Optional[pd.DataFrame]) -> Dict[str, float]:
+    """実績データから平均売上・利益などを算出して比較指標を返す。"""
+
+    if actual_sales is None or actual_sales.empty:
+        return {}
+    if "order_date" not in actual_sales.columns or "sales_amount" not in actual_sales.columns:
+        return {}
+
+    working = actual_sales.copy()
+    working["order_month"] = working["order_date"].dt.to_period("M")
+    monthly_sales = working.groupby("order_month")["sales_amount"].sum()
+    reference: Dict[str, float] = {}
+    if not monthly_sales.empty:
+        reference["monthly_sales_avg"] = float(monthly_sales.mean())
+
+    profit_column = None
+    if "net_gross_profit" in working.columns:
+        profit_column = "net_gross_profit"
+    elif "gross_profit" in working.columns:
+        profit_column = "gross_profit"
+
+    if profit_column:
+        monthly_profit = working.groupby("order_month")[profit_column].sum()
+        if not monthly_profit.empty:
+            reference["monthly_profit_avg"] = float(monthly_profit.mean())
+            sales_avg = reference.get("monthly_sales_avg")
+            if sales_avg:
+                reference["margin_avg"] = reference["monthly_profit_avg"] / sales_avg
+
+    return reference
+
+
+def validate_plan_basic_info(info: Dict[str, Any]) -> Tuple[bool, List[str], List[str]]:
+    """基本情報入力の妥当性を確認する。"""
+
+    errors: List[str] = []
+    warnings: List[str] = []
+
+    if not info.get("company_name", "").strip():
+        errors.append("事業所名を入力してください。")
+    if not isinstance(info.get("fiscal_year_start"), date):
+        errors.append("計画開始月を選択してください。")
+
+    period = int(info.get("plan_period_months") or 0)
+    if period <= 0:
+        errors.append("計画期間は1ヶ月以上を指定してください。")
+
+    if not info.get("preparer", "").strip():
+        warnings.append("作成担当者を入力すると共有がスムーズになります。")
+
+    target_margin = float(info.get("target_margin") or 0.0)
+    if target_margin < 0:
+        errors.append("目標利益率は0%以上で設定してください。")
+    elif target_margin > 80:
+        warnings.append("目標利益率が高すぎる可能性があります。")
+
+    return len(errors) == 0, errors, warnings
+
+
+def validate_plan_sales(df: pd.DataFrame) -> Tuple[bool, List[str], List[str]]:
+    """売上予測入力の妥当性を確認する。"""
+
+    errors: List[str] = []
+    warnings: List[str] = []
+
+    if df is None or df.empty:
+        errors.append("売上予測を1件以上入力してください。")
+        return False, errors, warnings
+
+    if "項目" not in df.columns or "月次売上" not in df.columns:
+        errors.append("売上予測の列構成が不正です。")
+        return False, errors, warnings
+
+    empty_label = df["項目"].astype(str).str.strip() == ""
+    if empty_label.any():
+        errors.append("空欄の売上項目があります。名称を入力してください。")
+
+    negative = df["月次売上"] < 0
+    if negative.any():
+        errors.append("売上金額は0以上で入力してください。")
+
+    zero_rows = df["月次売上"] == 0
+    if zero_rows.any():
+        warnings.append("0円の売上項目があります。必要でなければ削除してください。")
+
+    duplicates = df["項目"].astype(str).str.strip().duplicated()
+    if duplicates.any():
+        warnings.append("同名の売上項目が複数あります。集計が重複する可能性があります。")
+
+    return len(errors) == 0, errors, warnings
+
+
+def validate_plan_expenses(df: pd.DataFrame) -> Tuple[bool, List[str], List[str]]:
+    """経費計画入力の妥当性を確認する。"""
+
+    errors: List[str] = []
+    warnings: List[str] = []
+
+    if df is None or df.empty:
+        errors.append("経費計画を1件以上入力してください。")
+        return False, errors, warnings
+
+    if "費目" not in df.columns or "月次金額" not in df.columns:
+        errors.append("経費計画の列構成が不正です。")
+        return False, errors, warnings
+
+    empty_label = df["費目"].astype(str).str.strip() == ""
+    if empty_label.any():
+        errors.append("空欄の経費科目があります。名称を入力してください。")
+
+    negative = df["月次金額"] < 0
+    if negative.any():
+        errors.append("経費金額は0以上で入力してください。")
+
+    zero_rows = df["月次金額"] == 0
+    if zero_rows.any():
+        warnings.append("0円の経費項目があります。必要でなければ削除してください。")
+
+    if "区分" in df.columns and (df["区分"].astype(str).str.strip() == "").any():
+        warnings.append("区分が未選択の経費があります。")
+
+    return len(errors) == 0, errors, warnings
+
+
+def validate_plan_metrics(metrics: Dict[str, Any]) -> Tuple[bool, List[str], List[str]]:
+    """財務指標計算ステップの妥当性を確認する。"""
+
+    errors: List[str] = []
+    warnings: List[str] = []
+
+    if not metrics:
+        errors.append("売上と経費の入力を完了してください。")
+        return False, errors, warnings
+
+    if metrics.get("monthly_sales", 0.0) <= 0:
+        errors.append("売上予測が未入力または0円のため、指標を計算できません。")
+
+    if metrics.get("monthly_expenses", 0.0) < 0:
+        errors.append("経費金額が不正です。")
+
+    if metrics.get("period_months", 0) <= 0:
+        errors.append("計画期間を見直してください。")
+
+    if (
+        metrics.get("monthly_sales", 0.0) > 0
+        and metrics.get("monthly_profit", 0.0) < 0
+    ):
+        warnings.append("月次営業利益がマイナスです。コスト構成を確認してください。")
+
+    margin_gap = metrics.get("margin_gap_pct")
+    if margin_gap is not None and np.isfinite(margin_gap) and margin_gap < 0:
+        warnings.append("計画上の利益率が目標を下回っています。")
+
+    return len(errors) == 0, errors, warnings
+
+
+def render_instruction_popover(label: str, content: str) -> None:
+    """ポップオーバーまたはエクスパンダーで操作ガイドを表示する。"""
+
+    popover_fn = getattr(st, "popover", None)
+    if callable(popover_fn):
+        with popover_fn(label):
+            st.markdown(content)
+    else:
+        with st.expander(label):
+            st.markdown(content)
+
+
+def render_plan_step_basic_info(state: Dict[str, Any]) -> None:
+    """ウィザードの基本情報入力ステップを描画する。"""
+
+    info = state["basic_info"]
+    render_instruction_popover(
+        "基本情報の入力ガイド",
+        """
+- 会社名や担当者などの基本情報を入力します。
+- 計画開始月と期間は年間換算の計算に利用されます。
+- 目標利益率を設定すると達成状況のチェックが自動化されます。
+""",
+    )
+
+    col1, col2 = st.columns(2)
+    info["company_name"] = col1.text_input(
+        "事業所名",
+        value=info.get("company_name", ""),
+        key="plan_company_name",
+        help="経営計画書に記載する正式な社名または店舗名を入力してください。",
+    )
+    info["preparer"] = col2.text_input(
+        "作成担当者",
+        value=info.get("preparer", ""),
+        key="plan_preparer",
+        help="計画の作成者または責任者を入力すると共有がスムーズになります。",
+    )
+
+    default_start = info.get("fiscal_year_start")
+    if not isinstance(default_start, date):
+        default_start = date.today().replace(day=1)
+    info["fiscal_year_start"] = col1.date_input(
+        "計画開始月",
+        value=default_start,
+        key="plan_fiscal_start",
+        help="事業計画の初月を選択します。月次予測の起点として使用されます。",
+    )
+
+    period_default = int(info.get("plan_period_months") or 12)
+    info["plan_period_months"] = col2.slider(
+        "計画期間（月）",
+        min_value=3,
+        max_value=36,
+        value=period_default,
+        step=1,
+        key="plan_period_months",
+        help="3〜36ヶ月の範囲で計画期間を指定します。",
+    )
+
+    target_margin_default = float(info.get("target_margin") or 15.0)
+    info["target_margin"] = col1.slider(
+        "目標営業利益率(%)",
+        min_value=0.0,
+        max_value=50.0,
+        value=target_margin_default,
+        step=0.5,
+        key="plan_target_margin",
+        help="経営チームが目指す営業利益率を設定します。",
+    )
+
+    info["strategic_focus"] = st.text_area(
+        "重点施策メモ",
+        value=info.get("strategic_focus", ""),
+        key="plan_strategic_focus",
+        help="成長戦略や重点施策をメモできます。後続ステップの指標と合わせて検討してください。",
+    )
+
+    st.caption(
+        "段階的なウィザードと統一されたツールチップを用いたインターフェースは、Nielsen Norman Groupの調査 (moldstud.com) によればユーザー満足度を約20%向上させます。"
+    )
+
+
+def render_plan_step_sales(state: Dict[str, Any], context: Dict[str, Any]) -> None:
+    """売上予測入力ステップを描画する。"""
+
+    state["sales_table"] = prepare_plan_table(
+        state.get("sales_table"), SALES_PLAN_COLUMNS, ["月次売上"]
+    )
+
+    render_instruction_popover(
+        "売上入力のヒント",
+        """
+- 会計ソフトから出力したCSVを取り込むと科目と金額を自動で整形します。
+- テンプレートを読み込めば、よくあるチャネル構成を一度で入力できます。
+- プルダウンから追加した科目は0円で挿入されるため、数値を上書きするだけで済みます。
+""",
+    )
+
+    uploaded = st.file_uploader(
+        "会計ソフトの売上CSVを取り込む",
+        type=["csv"],
+        key="plan_sales_upload",
+        help="勘定奉行やfreeeなどの会計ソフトから出力したCSVをアップロードすると自動でマッピングされます。",
+    )
+    if uploaded is not None:
+        file_bytes = uploaded.getvalue()
+        file_hash = hashlib.md5(file_bytes).hexdigest()
+        if file_hash and state.get("sales_import_hash") != file_hash:
+            imported_df, error = import_plan_csv(
+                file_bytes,
+                SALES_IMPORT_CANDIDATES,
+                ["項目", "月次売上"],
+                ["月次売上"],
+            )
+            if error:
+                state["sales_import_feedback"] = ("error", error)
+            else:
+                state["sales_table"] = prepare_plan_table(
+                    imported_df, SALES_PLAN_COLUMNS, ["月次売上"]
+                )
+                state["sales_import_feedback"] = (
+                    "success",
+                    f"CSVから{len(state['sales_table'])}件の売上科目を読み込みました。",
+                )
+            state["sales_import_hash"] = file_hash
+
+    feedback = state.get("sales_import_feedback")
+    if feedback:
+        level, message = feedback
+        if level == "error":
+            st.error(message)
+        elif level == "success":
+            st.success(message)
+
+    template_cols = st.columns([3, 1])
+    template_options = ["テンプレートを選択"] + list(SALES_PLAN_TEMPLATES.keys())
+    selected_template = template_cols[0].selectbox(
+        "売上テンプレートを適用",
+        options=template_options,
+        key="plan_sales_template",
+        help="売上の典型的な構成をテンプレートとして呼び出せます。",
+    )
+    if template_cols[1].button("読み込む", key="plan_apply_sales_template"):
+        if selected_template != "テンプレートを選択":
+            template_df = pd.DataFrame(SALES_PLAN_TEMPLATES[selected_template])
+            state["sales_table"] = prepare_plan_table(
+                template_df, SALES_PLAN_COLUMNS, ["月次売上"]
+            )
+            state["sales_import_feedback"] = (
+                "success",
+                f"テンプレート『{selected_template}』を適用しました。",
+            )
+
+    common_candidates = list(
+        dict.fromkeys(COMMON_SALES_ITEMS + context.get("category_options", []))
+    )
+    selected_common = st.multiselect(
+        "よく使う売上科目を追加",
+        options=common_candidates,
+        key="plan_sales_common_select",
+        help="頻出する売上科目をプルダウンから追加できます。",
+    )
+    if st.button("選択した科目を追加", key="plan_add_sales_common"):
+        state["sales_table"], added = append_plan_rows(
+            state["sales_table"],
+            "項目",
+            "月次売上",
+            {"チャネル": ""},
+            selected_common,
+        )
+        if added:
+            st.success(f"{added}件の売上科目を追加しました。")
+        else:
+            st.info("新しく追加できる科目がありませんでした。")
+        st.session_state["plan_sales_common_select"] = []
+
+    channel_options = list(dict.fromkeys(context.get("channel_options", PLAN_CHANNEL_OPTIONS_BASE)))
+    channel_select_options = [""] + channel_options
+    column_module = getattr(st, "column_config", None)
+    column_config = {}
+    if column_module:
+        column_config["項目"] = column_module.TextColumn(
+            "項目",
+            help="売上項目の名称を入力します。",
+        )
+        column_config["月次売上"] = column_module.NumberColumn(
+            "月次売上 (円)",
+            min_value=0.0,
+            step=50_000.0,
+            help="各項目の月次売上計画を入力します。",
+        )
+        if hasattr(column_module, "SelectboxColumn"):
+            column_config["チャネル"] = column_module.SelectboxColumn(
+                "チャネル/メモ",
+                options=channel_select_options,
+                help="主要チャネルやメモを選択・入力します。",
+            )
+        else:
+            column_config["チャネル"] = column_module.TextColumn(
+                "チャネル/メモ",
+                help="主要チャネルやメモを入力します。",
+            )
+    else:
+        column_config = None
+
+    editor_kwargs: Dict[str, Any] = {
+        "num_rows": "dynamic",
+        "use_container_width": True,
+        "hide_index": True,
+    }
+    if column_config:
+        editor_kwargs["column_config"] = column_config
+
+    sales_editor_value = st.data_editor(
+        state["sales_table"],
+        key="plan_sales_editor",
+        **editor_kwargs,
+    )
+    state["sales_table"] = prepare_plan_table(
+        sales_editor_value, SALES_PLAN_COLUMNS, ["月次売上"]
+    )
+
+    monthly_total = (
+        float(state["sales_table"]["月次売上"].sum())
+        if not state["sales_table"].empty
+        else 0.0
+    )
+    st.metric("月次売上計画合計", f"{monthly_total:,.0f} 円")
+    st.caption("CSV取り込みとテンプレートで手入力を軽減し、小規模企業でも負荷を抑えられます。")
+
+
+def render_plan_step_expenses(state: Dict[str, Any], context: Dict[str, Any]) -> None:
+    """経費入力ステップを描画する。"""
+
+    state["expense_table"] = prepare_plan_table(
+        state.get("expense_table"), EXPENSE_PLAN_COLUMNS, ["月次金額"]
+    )
+
+    render_instruction_popover(
+        "経費入力のヒント",
+        """
+- 会計ソフトから出力した支出CSVを読み込むと費目と金額を自動で整形します。
+- テンプレートは小規模ECでよく使う固定費と変動費の構成を含んでいます。
+- プルダウンから費目を追加して月次金額を入力すれば経費計画が完成します。
+""",
+    )
+
+    uploaded = st.file_uploader(
+        "会計ソフトの経費CSVを取り込む",
+        type=["csv"],
+        key="plan_expense_upload",
+        help="freeeや弥生会計などから出力した経費CSVをアップロードすると自動でマッピングします。",
+    )
+    if uploaded is not None:
+        file_bytes = uploaded.getvalue()
+        file_hash = hashlib.md5(file_bytes).hexdigest()
+        if file_hash and state.get("expense_import_hash") != file_hash:
+            imported_df, error = import_plan_csv(
+                file_bytes,
+                EXPENSE_IMPORT_CANDIDATES,
+                ["費目", "月次金額"],
+                ["月次金額"],
+            )
+            if error:
+                state["expense_import_feedback"] = ("error", error)
+            else:
+                state["expense_table"] = prepare_plan_table(
+                    imported_df, EXPENSE_PLAN_COLUMNS, ["月次金額"]
+                )
+                state["expense_import_feedback"] = (
+                    "success",
+                    f"CSVから{len(state['expense_table'])}件の経費科目を読み込みました。",
+                )
+            state["expense_import_hash"] = file_hash
+
+    feedback = state.get("expense_import_feedback")
+    if feedback:
+        level, message = feedback
+        if level == "error":
+            st.error(message)
+        elif level == "success":
+            st.success(message)
+
+    template_cols = st.columns([3, 1])
+    template_options = ["テンプレートを選択"] + list(EXPENSE_PLAN_TEMPLATES.keys())
+    selected_template = template_cols[0].selectbox(
+        "経費テンプレートを適用",
+        options=template_options,
+        key="plan_expense_template",
+        help="固定費・変動費の代表的な構成をテンプレートから読み込めます。",
+    )
+    if template_cols[1].button("読み込む", key="plan_apply_expense_template"):
+        if selected_template != "テンプレートを選択":
+            template_df = pd.DataFrame(EXPENSE_PLAN_TEMPLATES[selected_template])
+            state["expense_table"] = prepare_plan_table(
+                template_df, EXPENSE_PLAN_COLUMNS, ["月次金額"]
+            )
+            state["expense_import_feedback"] = (
+                "success",
+                f"テンプレート『{selected_template}』を適用しました。",
+            )
+
+    selected_common = st.multiselect(
+        "よく使う経費科目を追加",
+        options=COMMON_EXPENSE_ITEMS,
+        key="plan_expense_common_select",
+        help="頻出する経費科目をプルダウンから追加できます。",
+    )
+    if st.button("選択した費目を追加", key="plan_add_expense_common"):
+        state["expense_table"], added = append_plan_rows(
+            state["expense_table"],
+            "費目",
+            "月次金額",
+            {"区分": "固定費"},
+            selected_common,
+        )
+        if added:
+            st.success(f"{added}件の経費科目を追加しました。")
+        else:
+            st.info("新しく追加できる科目がありませんでした。")
+        st.session_state["plan_expense_common_select"] = []
+
+    column_module = getattr(st, "column_config", None)
+    column_config = {}
+    if column_module:
+        column_config["費目"] = column_module.TextColumn(
+            "費目",
+            help="経費の科目名を入力します。",
+        )
+        column_config["月次金額"] = column_module.NumberColumn(
+            "月次金額 (円)",
+            min_value=0.0,
+            step=20_000.0,
+            help="各費目の月次金額を入力します。",
+        )
+        if hasattr(column_module, "SelectboxColumn"):
+            column_config["区分"] = column_module.SelectboxColumn(
+                "区分",
+                options=PLAN_EXPENSE_CLASSIFICATIONS,
+                help="固定費/変動費/投資などの区分を選択します。",
+            )
+        else:
+            column_config["区分"] = column_module.TextColumn(
+                "区分",
+                help="固定費や変動費などの区分を入力します。",
+            )
+    else:
+        column_config = None
+
+    editor_kwargs: Dict[str, Any] = {
+        "num_rows": "dynamic",
+        "use_container_width": True,
+        "hide_index": True,
+    }
+    if column_config:
+        editor_kwargs["column_config"] = column_config
+
+    expense_editor_value = st.data_editor(
+        state["expense_table"],
+        key="plan_expense_editor",
+        **editor_kwargs,
+    )
+    state["expense_table"] = prepare_plan_table(
+        expense_editor_value, EXPENSE_PLAN_COLUMNS, ["月次金額"]
+    )
+
+    monthly_total = (
+        float(state["expense_table"]["月次金額"].sum())
+        if not state["expense_table"].empty
+        else 0.0
+    )
+    st.metric("月次経費計画合計", f"{monthly_total:,.0f} 円")
+    st.caption("テンプレートと自動補完で経費入力も数クリックで完了します。")
+
+
+def render_plan_step_metrics(state: Dict[str, Any], context: Dict[str, Any]) -> None:
+    """財務指標計算ステップを描画する。"""
+
+    metrics = calculate_plan_metrics_from_state(state)
+    actual_reference = context.get("actual_reference", {})
+
+    monthly_sales_delta = None
+    if actual_reference.get("monthly_sales_avg") is not None:
+        diff = metrics["monthly_sales"] - actual_reference["monthly_sales_avg"]
+        monthly_sales_delta = f"{diff:,.0f} 円 vs 過去平均"
+
+    monthly_profit_delta = None
+    if actual_reference.get("monthly_profit_avg") is not None:
+        diff_profit = metrics["monthly_profit"] - actual_reference["monthly_profit_avg"]
+        monthly_profit_delta = f"{diff_profit:,.0f} 円 vs 過去平均"
+
+    margin_value = metrics.get("monthly_margin")
+    margin_display = (
+        f"{margin_value * 100:.1f} %"
+        if margin_value is not None and np.isfinite(margin_value)
+        else "計算不可"
+    )
+    margin_delta = None
+    if metrics.get("target_margin_pct") is not None and np.isfinite(metrics.get("margin_gap_pct")):
+        margin_delta = f"{metrics['margin_gap_pct']:.1f} pt vs 目標"
+
+    col1, col2, col3 = st.columns(3)
+    col1.metric("月次売上計画", f"{metrics['monthly_sales']:,.0f} 円", delta=monthly_sales_delta)
+    col2.metric("月次営業利益", f"{metrics['monthly_profit']:,.0f} 円", delta=monthly_profit_delta)
+    col3.metric("営業利益率", margin_display, delta=margin_delta)
+
+    if metrics.get("monthly_profit", 0.0) < 0:
+        st.error("月次営業利益がマイナスです。コスト配分や売上計画を見直してください。")
+    elif metrics.get("monthly_profit", 0.0) == 0:
+        st.warning("月次営業利益が0円です。余裕を持たせるために売上・経費を再検討しましょう。")
+
+    summary_df = build_plan_summary_df(metrics)
+    formatters: Dict[str, str] = {}
+    if "月次計画額" in summary_df.columns:
+        formatters["月次計画額"] = "{:,.0f}"
+    if "年間計画額" in summary_df.columns:
+        formatters["年間計画額"] = "{:,.0f}"
+    if "指標値" in summary_df.columns:
+        formatters["指標値"] = "{:,.1f}"
+    st.dataframe(summary_df.style.format(formatters), use_container_width=True)
+
+    if actual_reference.get("margin_avg") is not None:
+        st.caption(
+            f"参考: 過去平均の営業利益率は{actual_reference['margin_avg'] * 100:.1f}%です。"
+        )
+
+
+def render_plan_step_review(state: Dict[str, Any], context: Dict[str, Any]) -> None:
+    """ウィザード最終ステップの結果確認を描画する。"""
+
+    metrics = state.get("metrics") or calculate_plan_metrics_from_state(state)
+    info = state.get("basic_info", {})
+
+    st.success("入力内容を確認し、必要に応じて修正してください。")
+    st.markdown(
+        f"**事業所名**: {info.get('company_name') or '-'} / **担当者**: {info.get('preparer') or '-'} / "
+        f"**計画開始月**: {info.get('fiscal_year_start')} / **期間**: {info.get('plan_period_months')}ヶ月"
+    )
+
+    st.markdown("#### 売上予測一覧")
+    if state["sales_table"].empty:
+        st.info("売上予測が未入力です。前のステップで追加してください。")
+    else:
+        st.dataframe(
+            state["sales_table"].style.format({"月次売上": "{:,.0f}"}),
+            use_container_width=True,
+        )
+
+    st.markdown("#### 経費計画一覧")
+    if state["expense_table"].empty:
+        st.info("経費計画が未入力です。前のステップで追加してください。")
+    else:
+        st.dataframe(
+            state["expense_table"].style.format({"月次金額": "{:,.0f}"}),
+            use_container_width=True,
+        )
+
+    st.markdown("#### 財務指標サマリー")
+    summary_df = build_plan_summary_df(metrics)
+    formatters: Dict[str, str] = {}
+    if "月次計画額" in summary_df.columns:
+        formatters["月次計画額"] = "{:,.0f}"
+    if "年間計画額" in summary_df.columns:
+        formatters["年間計画額"] = "{:,.0f}"
+    if "指標値" in summary_df.columns:
+        formatters["指標値"] = "{:,.1f}"
+    st.dataframe(summary_df.style.format(formatters), use_container_width=True)
+
+    download_button_from_df(
+        "計画サマリーをCSVでダウンロード",
+        summary_df,
+        "business_plan_summary.csv",
+    )
+
+    actual_reference = context.get("actual_reference", {})
+    actual_caption: List[str] = []
+    if actual_reference.get("monthly_sales_avg") is not None:
+        actual_caption.append(f"平均売上 {actual_reference['monthly_sales_avg']:,.0f}円/月")
+    if actual_reference.get("monthly_profit_avg") is not None:
+        actual_caption.append(f"平均営業利益 {actual_reference['monthly_profit_avg']:,.0f}円/月")
+    if actual_reference.get("margin_avg") is not None:
+        actual_caption.append(f"平均利益率 {actual_reference['margin_avg'] * 100:.1f}%")
+    if actual_caption:
+        st.caption("過去実績: " + " / ".join(actual_caption))
+
+    st.caption("入力内容はブラウザセッションに一時保存されます。CSVをダウンロードして関係者と共有してください。")
+
+
+def render_business_plan_wizard(actual_sales: Optional[pd.DataFrame]) -> None:
+    """経営計画ウィザードの全体を描画する。"""
+
+    state = ensure_plan_wizard_state()
+    if state.get("current_step", 0) < len(PLAN_WIZARD_STEPS) - 1:
+        state["completed"] = False
+
+    channel_options = list(PLAN_CHANNEL_OPTIONS_BASE)
+    category_options: List[str] = []
+    if actual_sales is not None and not actual_sales.empty:
+        if "channel" in actual_sales.columns:
+            for channel in actual_sales["channel"].dropna().unique():
+                channel_str = str(channel).strip()
+                if channel_str and channel_str not in channel_options:
+                    channel_options.append(channel_str)
+        if "category" in actual_sales.columns:
+            category_options = [
+                str(cat).strip()
+                for cat in actual_sales["category"].dropna().unique()
+                if str(cat).strip()
+            ]
+
+    channel_options = list(dict.fromkeys(channel_options))
+    context = {
+        "channel_options": channel_options,
+        "category_options": category_options,
+        "actual_reference": compute_actual_reference(actual_sales),
+    }
+
+    header_cols = st.columns([3, 1])
+    with header_cols[0]:
+        st.markdown("### 経営計画ウィザード")
+    with header_cols[1]:
+        if st.button("リセット", key="plan_reset_button"):
+            reset_plan_wizard_state()
+            st.experimental_rerun()
+
+    step_index = int(state.get("current_step", 0))
+    total_steps = len(PLAN_WIZARD_STEPS)
+    progress_fraction = (step_index + 1) / total_steps
+    progress_label = (
+        f"ステップ {step_index + 1} / {total_steps}: {PLAN_WIZARD_STEPS[step_index]['title']}"
+    )
+    try:
+        st.progress(progress_fraction, text=progress_label)
+    except TypeError:
+        st.progress(progress_fraction)
+        st.caption(progress_label)
+
+    st.markdown(f"#### {PLAN_WIZARD_STEPS[step_index]['title']}")
+    st.write(PLAN_WIZARD_STEPS[step_index]["description"])
+
+    if step_index == 0:
+        render_plan_step_basic_info(state)
+        is_valid, errors, warnings = validate_plan_basic_info(state["basic_info"])
+    elif step_index == 1:
+        render_plan_step_sales(state, context)
+        is_valid, errors, warnings = validate_plan_sales(state["sales_table"])
+    elif step_index == 2:
+        render_plan_step_expenses(state, context)
+        is_valid, errors, warnings = validate_plan_expenses(state["expense_table"])
+    elif step_index == 3:
+        render_plan_step_metrics(state, context)
+        is_valid, errors, warnings = validate_plan_metrics(state.get("metrics", {}))
+    else:
+        render_plan_step_review(state, context)
+        is_valid, errors, warnings = True, [], []
+
+    for message in errors:
+        st.error(f"❗ {message}")
+    for message in warnings:
+        st.warning(f"⚠️ {message}")
+
+    nav_cols = st.columns([1, 1, 1])
+    if nav_cols[0].button("戻る", disabled=step_index == 0, key=f"plan_prev_{step_index}"):
+        state["current_step"] = max(step_index - 1, 0)
+        st.experimental_rerun()
+
+    next_label = "完了" if step_index == total_steps - 1 else "次へ進む"
+    next_disabled = step_index < total_steps - 1 and not is_valid
+    if nav_cols[2].button(next_label, disabled=next_disabled, key=f"plan_next_{step_index}"):
+        if step_index < total_steps - 1:
+            state["current_step"] = min(step_index + 1, total_steps - 1)
+        else:
+            state["completed"] = True
+        st.experimental_rerun()
+
+    if step_index == total_steps - 1 and state.get("completed"):
+        st.success("経営計画ウィザードの入力が完了しました。CSV出力で関係者と共有できます。")
 
 
 def _nanmean(series: pd.Series) -> float:
@@ -2129,6 +3260,9 @@ def main() -> None:
             - 列名が異なる場合でも代表的な項目は自動マッピングされます。
             """
         )
+
+        render_business_plan_wizard(merged_full)
+        st.markdown("---")
 
         if sales_validation:
             st.markdown("### 読み込みバリデーション結果")
