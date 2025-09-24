@@ -13,6 +13,7 @@ from urllib.parse import parse_qsl
 
 import numpy as np
 import pandas as pd
+import altair as alt
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
@@ -289,8 +290,8 @@ PRIMARY_NAVY_ALT = "#123A66"
 SECONDARY_SLATE = "#5B6B82"
 SECONDARY_SKY = "#E6ECF4"
 NEUTRAL_STEEL = "#8FA5C9"
-ACCENT_BLUE = "#2A86FF"
-ACCENT_BLUE_STRONG = "#1E5CC3"
+ACCENT_BLUE = "#1E88E5"
+ACCENT_BLUE_STRONG = "#15579B"
 ACCENT_ORANGE = "#FF7A45"
 ACCENT_ORANGE_STRONG = "#C24C1D"
 INK_INVERSE = "#F5F8FF"
@@ -298,7 +299,26 @@ INK_MUTED = "#C7D3E7"
 MCKINSEY_FONT_STACK = (
     "'Noto Sans JP', 'Hiragino Sans', 'Segoe UI', 'Helvetica Neue', sans-serif"
 )
-PLOTLY_COLORWAY = [ACCENT_BLUE, SECONDARY_SLATE, ACCENT_ORANGE, PRIMARY_NAVY_ALT, NEUTRAL_STEEL]
+ALT_FONT_FAMILY = "Noto Sans JP"
+SALES_SERIES_COLOR = "#1E88E5"
+GROSS_SERIES_COLOR = "#00796B"
+INVENTORY_SERIES_COLOR = "#F9A825"
+CASH_SERIES_COLOR = "#3949AB"
+YOY_SERIES_COLOR = SECONDARY_SLATE
+BASELINE_SERIES_COLOR = "#6D6D6D"
+CF_COLOR_MAPPING = {
+    "営業CF": SALES_SERIES_COLOR,
+    "投資CF": ACCENT_ORANGE,
+    "財務CF": GROSS_SERIES_COLOR,
+    "返済": YOY_SERIES_COLOR,
+}
+PLOTLY_COLORWAY = [
+    SALES_SERIES_COLOR,
+    GROSS_SERIES_COLOR,
+    INVENTORY_SERIES_COLOR,
+    YOY_SERIES_COLOR,
+    ACCENT_ORANGE,
+]
 
 
 KGI_TARGETS = {
@@ -324,6 +344,33 @@ def apply_chart_theme(fig):
     fig.update_xaxes(showgrid=True, gridcolor="rgba(11,31,51,0.08)")
     fig.update_yaxes(showgrid=True, gridcolor="rgba(11,31,51,0.08)")
     return fig
+
+
+def apply_altair_theme(chart: alt.Chart) -> alt.Chart:
+    """Altairグラフに共通のスタイル・タイポグラフィを適用する。"""
+
+    return (
+        chart.configure_axis(
+            labelFont=ALT_FONT_FAMILY,
+            titleFont=ALT_FONT_FAMILY,
+            labelColor="#0F1E2E",
+            titleColor="#0F1E2E",
+            gridColor="rgba(11,31,51,0.12)",
+            domainColor="rgba(11,31,51,0.18)",
+        )
+        .configure_legend(
+            titleFont=ALT_FONT_FAMILY,
+            labelFont=ALT_FONT_FAMILY,
+            labelColor="#0F1E2E",
+            titleColor="#0F1E2E",
+            orient="top",
+            direction="horizontal",
+            symbolSize=120,
+        )
+        .configure_view(strokeOpacity=0)
+        .configure_title(font=ALT_FONT_FAMILY, color="#0F1E2E", fontSize=18)
+        .configure_mark(font=ALT_FONT_FAMILY)
+    )
 
 
 def inject_mckinsey_style() -> None:
@@ -3659,30 +3706,90 @@ def render_sales_tab(
             col for col in ["現状売上", "前年同期間売上"] if col in sales_chart_source.columns
         ]
         if value_columns:
-            melted = sales_chart_source.melt(
-                id_vars=["期間開始", "期間"],
-                value_vars=value_columns,
-                var_name="指標",
-                value_name="金額",
+            melted = (
+                sales_chart_source.melt(
+                    id_vars=["期間開始", "期間"],
+                    value_vars=value_columns,
+                    var_name="指標",
+                    value_name="金額",
+                )
+                .dropna(subset=["金額"])
+                .sort_values("期間開始")
             )
-            sales_chart = px.line(
-                melted,
-                x="期間開始",
-                y="金額",
-                color="指標",
-                markers=True,
-                hover_data={"期間": True},
-                color_discrete_sequence=[ACCENT_BLUE, SECONDARY_SLATE],
+            color_domain: List[str] = []
+            color_range: List[str] = []
+            for column in value_columns:
+                color_domain.append(column)
+                if column == "現状売上":
+                    color_range.append(SALES_SERIES_COLOR)
+                elif column == "前年同期間売上":
+                    color_range.append(YOY_SERIES_COLOR)
+                else:
+                    color_range.append(SALES_SERIES_COLOR)
+
+            sales_line = alt.Chart(melted).mark_line(
+                point=alt.OverlayMarkDef(size=70, filled=True)
+            ).encode(
+                x=alt.X(
+                    "期間開始:T",
+                    title=f"{selected_granularity_label}開始日",
+                    axis=alt.Axis(format="%Y-%m", labelOverlap=True),
+                ),
+                y=alt.Y(
+                    "金額:Q",
+                    title="売上高 (円)",
+                    axis=alt.Axis(format=",.0f"),
+                ),
+                color=alt.Color(
+                    "指標:N",
+                    scale=alt.Scale(domain=color_domain, range=color_range),
+                    legend=alt.Legend(title="系列"),
+                ),
+                tooltip=[
+                    alt.Tooltip("期間:T", title="期間"),
+                    alt.Tooltip("指標:N", title="系列"),
+                    alt.Tooltip("金額:Q", title="金額", format=",.0f"),
+                ],
             )
-            sales_chart = apply_chart_theme(sales_chart)
-            sales_chart.update_layout(
-                yaxis_title="円",
-                xaxis_title=f"{selected_granularity_label}開始日",
-                legend=dict(title="", itemclick="toggleothers", itemdoubleclick="toggle"),
+
+            chart_layers: List[alt.Chart] = [sales_line]
+            sales_target = KGI_TARGETS.get("sales")
+            if sales_target is not None and not pd.isna(sales_target):
+                target_df = pd.DataFrame({"基準": ["売上目標"], "金額": [float(sales_target)]})
+                target_rule = alt.Chart(target_df).mark_rule(strokeDash=[6, 4]).encode(
+                    y="金額:Q",
+                    color=alt.Color(
+                        "基準:N",
+                        scale=alt.Scale(domain=["売上目標"], range=[BASELINE_SERIES_COLOR]),
+                        legend=alt.Legend(title="基準"),
+                    ),
+                    tooltip=[alt.Tooltip("金額:Q", title="売上目標", format=",.0f")],
+                )
+                chart_layers.append(target_rule)
+
+            sales_chart = alt.layer(*chart_layers).resolve_scale(color="independent").properties(
+                height=320,
             )
-            st.plotly_chart(sales_chart, use_container_width=True)
+            sales_chart = apply_altair_theme(sales_chart)
+            st.altair_chart(sales_chart, use_container_width=True)
         else:
             st.caption("売上推移を表示するための指標が不足しています。")
+
+        latest_row = latest_periods.iloc[-1]
+        peak_idx = latest_periods["sales_amount"].idxmax()
+        peak_row = latest_periods.loc[peak_idx]
+        latest_sales = float(latest_row.get("sales_amount", 0.0))
+        yoy_value = latest_row.get("sales_yoy")
+        yoy_text = f"{float(yoy_value) * 100:+.1f}%" if pd.notna(yoy_value) else "前年比データなし"
+        sales_target = KGI_TARGETS.get("sales")
+        target_gap_text, _ = format_target_gap(latest_sales, sales_target)
+        summary_parts = [
+            f"売上は{latest_row['period_label']}に{latest_sales:,.0f}円で、前年同期間比 {yoy_text}。",
+            f"ピークは{peak_row['period_label']}の{float(peak_row['sales_amount']):,.0f}円です。",
+        ]
+        if target_gap_text != "-":
+            summary_parts.append(f"目標値との差は{target_gap_text}です。")
+        st.caption(" ".join(summary_parts))
         st.markdown("</div>", unsafe_allow_html=True)
     else:
         st.info("売上推移を表示するデータが不足しています。")
@@ -3697,36 +3804,91 @@ def render_sales_tab(
         )
         chart_cols = st.columns(2)
         if channel_share_df is not None and not channel_share_df.empty:
-            channel_chart = px.bar(
-                channel_share_df.sort_values("sales_amount", ascending=False),
-                x="channel",
-                y="sales_amount",
-                color_discrete_sequence=[ACCENT_BLUE],
+            channel_rank = channel_share_df.sort_values("sales_amount", ascending=False).copy()
+            channel_rank["構成比"] = channel_rank["sales_amount"] / channel_rank["sales_amount"].sum()
+            channel_rank.rename(
+                columns={"channel": "チャネル", "sales_amount": "売上高"}, inplace=True
             )
-            channel_chart = apply_chart_theme(channel_chart)
-            channel_chart.update_layout(
-                yaxis_title="売上高",
-                xaxis_title="チャネル",
-                showlegend=False,
+            bar = alt.Chart(channel_rank.head(10)).mark_bar(
+                cornerRadiusTopLeft=3,
+                cornerRadiusTopRight=3,
+            ).encode(
+                y=alt.Y("チャネル:N", sort="-x", title=None),
+                x=alt.X("売上高:Q", title="売上高 (円)", axis=alt.Axis(format=",.0f")),
+                color=alt.value(SALES_SERIES_COLOR),
+                tooltip=[
+                    alt.Tooltip("チャネル:N", title="チャネル"),
+                    alt.Tooltip("売上高:Q", title="売上高", format=",.0f"),
+                    alt.Tooltip("構成比:Q", title="構成比", format=".1%"),
+                ],
             )
-            chart_cols[0].plotly_chart(channel_chart, use_container_width=True)
+            labels = alt.Chart(channel_rank.head(10)).mark_text(
+                align="left",
+                baseline="middle",
+                dx=6,
+                color="#0F1E2E",
+                fontWeight="bold",
+            ).encode(
+                y=alt.Y("チャネル:N", sort="-x"),
+                x=alt.X("売上高:Q"),
+                text=alt.Text("構成比:Q", format=".1%"),
+            )
+            channel_chart = apply_altair_theme((bar + labels).properties(height=260))
+            chart_cols[0].altair_chart(channel_chart, use_container_width=True)
+
+            top_channel = channel_rank.iloc[0]
+            if len(channel_rank) >= 5:
+                fifth_channel = channel_rank.iloc[4]
+                diff_value = float(top_channel["売上高"]) - float(fifth_channel["売上高"])
+                chart_cols[0].caption(
+                    f"売上上位チャネルは{top_channel['チャネル']}で構成比{top_channel['構成比']:.1%}。5位との差は{diff_value:,.0f}円です。"
+                )
+            else:
+                chart_cols[0].caption(
+                    f"売上上位チャネルは{top_channel['チャネル']}で構成比{top_channel['構成比']:.1%}です。"
+                )
         else:
             chart_cols[0].info("チャネル別の集計データがありません。")
 
         if category_share_df is not None and not category_share_df.empty:
-            category_chart = px.bar(
-                category_share_df.sort_values("sales_amount", ascending=False),
-                x="category",
-                y="sales_amount",
-                color_discrete_sequence=[ACCENT_ORANGE],
+            category_rank = category_share_df.sort_values("sales_amount", ascending=False).copy()
+            category_rank["構成比"] = (
+                category_rank["sales_amount"] / category_rank["sales_amount"].sum()
             )
-            category_chart = apply_chart_theme(category_chart)
-            category_chart.update_layout(
-                yaxis_title="売上高",
-                xaxis_title="カテゴリ",
-                showlegend=False,
+            category_rank.rename(
+                columns={"category": "カテゴリ", "sales_amount": "売上高"}, inplace=True
             )
-            chart_cols[1].plotly_chart(category_chart, use_container_width=True)
+            bar = alt.Chart(category_rank.head(10)).mark_bar(
+                cornerRadiusTopLeft=3,
+                cornerRadiusTopRight=3,
+                color=GROSS_SERIES_COLOR,
+            ).encode(
+                y=alt.Y("カテゴリ:N", sort="-x", title=None),
+                x=alt.X("売上高:Q", title="売上高 (円)", axis=alt.Axis(format=",.0f")),
+                tooltip=[
+                    alt.Tooltip("カテゴリ:N", title="カテゴリ"),
+                    alt.Tooltip("売上高:Q", title="売上高", format=",.0f"),
+                    alt.Tooltip("構成比:Q", title="構成比", format=".1%"),
+                ],
+            )
+            labels = alt.Chart(category_rank.head(10)).mark_text(
+                align="left",
+                baseline="middle",
+                dx=6,
+                color="#0F1E2E",
+                fontWeight="bold",
+            ).encode(
+                y=alt.Y("カテゴリ:N", sort="-x"),
+                x=alt.X("売上高:Q"),
+                text=alt.Text("構成比:Q", format=".1%"),
+            )
+            category_chart = apply_altair_theme((bar + labels).properties(height=260))
+            chart_cols[1].altair_chart(category_chart, use_container_width=True)
+
+            top_category = category_rank.iloc[0]
+            chart_cols[1].caption(
+                f"売上トップカテゴリは{top_category['カテゴリ']}で、構成比は{top_category['構成比']:.1%}です。"
+            )
         else:
             chart_cols[1].info("カテゴリ別の集計データがありません。")
         st.markdown("</div>", unsafe_allow_html=True)
@@ -3784,32 +3946,87 @@ def render_gross_tab(
         )
         latest_periods = period_summary.tail(12).copy()
         latest_periods["period_start"] = pd.to_datetime(latest_periods["period_start"])
-        gross_fig = go.Figure()
-        gross_fig.add_bar(
-            x=latest_periods["period_start"],
-            y=latest_periods["net_gross_profit"],
-            name="粗利",
-            marker_color=ACCENT_BLUE,
+        latest_periods["gross_margin_pct"] = latest_periods["gross_margin_rate"] * 100
+
+        gross_bar = alt.Chart(latest_periods).mark_bar(color=GROSS_SERIES_COLOR).encode(
+            x=alt.X(
+                "period_start:T",
+                title=f"{selected_granularity_label}開始日",
+                axis=alt.Axis(format="%Y-%m", labelOverlap=True),
+            ),
+            y=alt.Y(
+                "net_gross_profit:Q",
+                title="粗利 (円)",
+                axis=alt.Axis(format=",.0f"),
+            ),
+            tooltip=[
+                alt.Tooltip("period_label:N", title="期間"),
+                alt.Tooltip("net_gross_profit:Q", title="粗利", format=",.0f"),
+            ],
         )
-        gross_fig.add_trace(
-            go.Scatter(
-                x=latest_periods["period_start"],
-                y=latest_periods["gross_margin_rate"] * 100,
-                name="粗利率",
-                mode="lines+markers",
-                line=dict(color=ACCENT_ORANGE),
-                yaxis="y2",
+
+        gross_line = alt.Chart(latest_periods).mark_line(
+            color=YOY_SERIES_COLOR, point=alt.OverlayMarkDef(size=60, filled=True)
+        ).encode(
+            x=alt.X("period_start:T"),
+            y=alt.Y(
+                "gross_margin_pct:Q",
+                title="粗利率 (%)",
+                axis=alt.Axis(format=".1f", orient="right"),
+            ),
+            tooltip=[
+                alt.Tooltip("period_label:N", title="期間"),
+                alt.Tooltip("gross_margin_pct:Q", title="粗利率", format=".1f"),
+            ],
+        )
+
+        gross_layers: List[alt.Chart] = [gross_bar, gross_line]
+        gross_target = KGI_TARGETS.get("gross_margin_rate")
+        if gross_target is not None and not pd.isna(gross_target):
+            gross_target_df = pd.DataFrame(
+                {"基準": ["粗利率目標"], "粗利率": [float(gross_target) * 100]}
             )
+            gross_target_rule = alt.Chart(gross_target_df).mark_rule(strokeDash=[6, 4]).encode(
+                y=alt.Y(
+                    "粗利率:Q",
+                    title="粗利率 (%)",
+                ),
+                color=alt.Color(
+                    "基準:N",
+                    scale=alt.Scale(domain=["粗利率目標"], range=[BASELINE_SERIES_COLOR]),
+                    legend=alt.Legend(title="基準"),
+                ),
+                tooltip=[alt.Tooltip("粗利率:Q", title="粗利率目標", format=".1f")],
+            )
+            gross_layers.append(gross_target_rule)
+
+        gross_chart = (
+            alt.layer(*gross_layers)
+            .resolve_scale(y="independent", color="independent")
+            .properties(height=320)
         )
-        gross_fig.update_layout(
-            yaxis=dict(title="粗利 (円)"),
-            yaxis2=dict(title="粗利率 (%)", overlaying="y", side="right", tickformat=".1f"),
-            xaxis=dict(title=f"{selected_granularity_label}開始日"),
-            legend=dict(title="", orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-            bargap=0.25,
+        st.altair_chart(apply_altair_theme(gross_chart), use_container_width=True)
+
+        latest_row = latest_periods.iloc[-1]
+        latest_gross = float(latest_row.get("net_gross_profit", 0.0))
+        gross_yoy = latest_row.get("gross_yoy")
+        gross_margin = latest_row.get("gross_margin_rate")
+        gross_margin_text = format_percent(gross_margin)
+        gross_yoy_text = (
+            f"{float(gross_yoy) * 100:+.1f}%" if pd.notna(gross_yoy) else "前年比データなし"
         )
-        gross_fig = apply_chart_theme(gross_fig)
-        st.plotly_chart(gross_fig, use_container_width=True)
+        peak_idx = latest_periods["net_gross_profit"].idxmax()
+        peak_row = latest_periods.loc[peak_idx]
+        gross_target_gap_text, _ = format_target_gap(
+            gross_margin, KGI_TARGETS.get("gross_margin_rate"), percentage=True
+        )
+        summary_parts = [
+            f"最新の粗利は{latest_row['period_label']}で{latest_gross:,.0f}円、粗利率は{gross_margin_text}です。",
+            f"前年同期間比は{gross_yoy_text}、粗利のピークは{peak_row['period_label']}の{float(peak_row['net_gross_profit']):,.0f}円です。",
+        ]
+        if gross_target_gap_text != "-":
+            summary_parts.append(f"粗利率目標との差は{gross_target_gap_text}です。")
+        st.caption(" ".join(summary_parts))
         st.markdown("</div>", unsafe_allow_html=True)
     else:
         st.info("粗利推移を表示するデータが不足しています。")
@@ -3825,19 +4042,46 @@ def render_gross_tab(
             merged_df.groupby("category")["net_gross_profit"].sum().reset_index().sort_values("net_gross_profit", ascending=False).head(10)
         )
         if not category_gross.empty:
-            category_chart = px.bar(
-                category_gross,
-                x="category",
-                y="net_gross_profit",
-                color_discrete_sequence=[ACCENT_BLUE],
+            category_gross.rename(
+                columns={"category": "カテゴリ", "net_gross_profit": "粗利"}, inplace=True
             )
-            category_chart = apply_chart_theme(category_chart)
-            category_chart.update_layout(
-                yaxis_title="粗利",
-                xaxis_title="カテゴリ",
-                showlegend=False,
+            total = category_gross["粗利"].sum()
+            if total:
+                category_gross["構成比"] = category_gross["粗利"] / total
+            else:
+                category_gross["構成比"] = 0
+            bar = alt.Chart(category_gross).mark_bar(
+                cornerRadiusTopLeft=3,
+                cornerRadiusTopRight=3,
+                color=GROSS_SERIES_COLOR,
+            ).encode(
+                y=alt.Y("カテゴリ:N", sort="-x", title=None),
+                x=alt.X("粗利:Q", title="粗利 (円)", axis=alt.Axis(format=",.0f")),
+                tooltip=[
+                    alt.Tooltip("カテゴリ:N", title="カテゴリ"),
+                    alt.Tooltip("粗利:Q", title="粗利", format=",.0f"),
+                    alt.Tooltip("構成比:Q", title="構成比", format=".1%"),
+                ],
             )
-            chart_cols[0].plotly_chart(category_chart, use_container_width=True)
+            labels = alt.Chart(category_gross).mark_text(
+                align="left",
+                baseline="middle",
+                dx=6,
+                color="#0F1E2E",
+                fontWeight="bold",
+            ).encode(
+                y=alt.Y("カテゴリ:N", sort="-x"),
+                x=alt.X("粗利:Q"),
+                text=alt.Text("構成比:Q", format=".1%"),
+            )
+            chart_cols[0].altair_chart(
+                apply_altair_theme((bar + labels).properties(height=260)),
+                use_container_width=True,
+            )
+            top_category = category_gross.iloc[0]
+            chart_cols[0].caption(
+                f"粗利が最も高いカテゴリは{top_category['カテゴリ']}で、構成比は{top_category['構成比']:.1%}です。"
+            )
         else:
             chart_cols[0].info("カテゴリ別の粗利データがありません。")
 
@@ -3845,19 +4089,46 @@ def render_gross_tab(
             merged_df.groupby("product_name")["net_gross_profit"].sum().reset_index().sort_values("net_gross_profit", ascending=False).head(10)
         )
         if not product_gross.empty:
-            product_chart = px.bar(
-                product_gross,
-                x="product_name",
-                y="net_gross_profit",
-                color_discrete_sequence=[ACCENT_ORANGE],
+            product_gross.rename(
+                columns={"product_name": "商品", "net_gross_profit": "粗利"}, inplace=True
             )
-            product_chart = apply_chart_theme(product_chart)
-            product_chart.update_layout(
-                yaxis_title="粗利",
-                xaxis_title="商品",
-                showlegend=False,
+            total = product_gross["粗利"].sum()
+            if total:
+                product_gross["構成比"] = product_gross["粗利"] / total
+            else:
+                product_gross["構成比"] = 0
+            bar = alt.Chart(product_gross).mark_bar(
+                cornerRadiusTopLeft=3,
+                cornerRadiusTopRight=3,
+                color=GROSS_SERIES_COLOR,
+            ).encode(
+                y=alt.Y("商品:N", sort="-x", title=None),
+                x=alt.X("粗利:Q", title="粗利 (円)", axis=alt.Axis(format=",.0f")),
+                tooltip=[
+                    alt.Tooltip("商品:N", title="商品"),
+                    alt.Tooltip("粗利:Q", title="粗利", format=",.0f"),
+                    alt.Tooltip("構成比:Q", title="構成比", format=".1%"),
+                ],
             )
-            chart_cols[1].plotly_chart(product_chart, use_container_width=True)
+            labels = alt.Chart(product_gross).mark_text(
+                align="left",
+                baseline="middle",
+                dx=6,
+                color="#0F1E2E",
+                fontWeight="bold",
+            ).encode(
+                y=alt.Y("商品:N", sort="-x"),
+                x=alt.X("粗利:Q"),
+                text=alt.Text("構成比:Q", format=".1%"),
+            )
+            chart_cols[1].altair_chart(
+                apply_altair_theme((bar + labels).properties(height=260)),
+                use_container_width=True,
+            )
+            top_product = product_gross.iloc[0]
+            chart_cols[1].caption(
+                f"粗利トップ商品は{top_product['商品']}で、構成比は{top_product['構成比']:.1%}です。"
+            )
         else:
             chart_cols[1].info("商品別の粗利データがありません。")
         st.markdown("</div>", unsafe_allow_html=True)
@@ -3918,35 +4189,51 @@ def render_inventory_tab(
         history = kpi_period_summary.tail(12).copy()
         history["period_start"] = pd.to_datetime(history["period_start"])
         chart_cols = st.columns(2)
-        turnover_chart = px.line(
-            history,
-            x="period_start",
-            y="inventory_turnover_days",
-            markers=True,
-            color_discrete_sequence=[ACCENT_BLUE],
+        turnover_line = alt.Chart(history).mark_line(
+            color=INVENTORY_SERIES_COLOR, point=alt.OverlayMarkDef(size=60, filled=True)
+        ).encode(
+            x=alt.X("period_start:T", title="期間開始", axis=alt.Axis(format="%Y-%m", labelOverlap=True)),
+            y=alt.Y("inventory_turnover_days:Q", title="在庫回転日数", axis=alt.Axis(format=",.0f")),
+            tooltip=[
+                alt.Tooltip("period_label:N", title="期間"),
+                alt.Tooltip("inventory_turnover_days:Q", title="在庫回転日数", format=",.1f"),
+            ],
         )
-        turnover_chart = apply_chart_theme(turnover_chart)
-        turnover_chart.update_layout(
-            yaxis_title="在庫回転日数",
-            xaxis_title="期間開始",
-            showlegend=False,
+        chart_cols[0].altair_chart(
+            apply_altair_theme(turnover_line.properties(height=260)), use_container_width=True
         )
-        chart_cols[0].plotly_chart(turnover_chart, use_container_width=True)
 
-        stockout_chart = px.line(
-            history,
-            x="period_start",
-            y=history["stockout_rate"] * 100,
-            markers=True,
-            color_discrete_sequence=[ACCENT_ORANGE],
+        stockout_chart = alt.Chart(history).mark_line(
+            color=YOY_SERIES_COLOR, point=alt.OverlayMarkDef(size=60, filled=True)
+        ).encode(
+            x=alt.X("period_start:T", title="期間開始", axis=alt.Axis(format="%Y-%m", labelOverlap=True)),
+            y=alt.Y(
+                "stockout_rate:Q",
+                title="欠品率",
+                axis=alt.Axis(format=".1%"),
+            ),
+            tooltip=[
+                alt.Tooltip("period_label:N", title="期間"),
+                alt.Tooltip("stockout_rate:Q", title="欠品率", format=".1%"),
+            ],
         )
-        stockout_chart = apply_chart_theme(stockout_chart)
-        stockout_chart.update_layout(
-            yaxis_title="欠品率 (%)",
-            xaxis_title="期間開始",
-            showlegend=False,
+        chart_cols[1].altair_chart(
+            apply_altair_theme(stockout_chart.properties(height=260)),
+            use_container_width=True,
         )
-        chart_cols[1].plotly_chart(stockout_chart, use_container_width=True)
+        latest_inventory_row = history.iloc[-1]
+        turnover_value = latest_inventory_row.get("inventory_turnover_days")
+        stockout_value = latest_inventory_row.get("stockout_rate")
+        chart_cols[0].caption(
+            f"最新の在庫回転日数は{turnover_value:,.1f}日で、直近最大値は{history['inventory_turnover_days'].max():,.1f}日です。"
+            if pd.notna(turnover_value)
+            else "在庫回転日数の最新値が取得できません。"
+        )
+        chart_cols[1].caption(
+            f"最新の欠品率は{stockout_value:.1%}で、最小値は{history['stockout_rate'].min():.1%}です。"
+            if pd.notna(stockout_value)
+            else "欠品率の最新値が取得できません。"
+        )
         st.markdown("</div>", unsafe_allow_html=True)
     else:
         st.info("在庫関連KPIの履歴がありません。")
@@ -3963,19 +4250,43 @@ def render_inventory_tab(
         )
         if not category_qty.empty:
             category_qty.rename(columns={"quantity": "販売数量"}, inplace=True)
-            category_chart = px.bar(
-                category_qty,
-                x="category",
-                y="販売数量",
-                color_discrete_sequence=[ACCENT_BLUE],
+            total_qty = category_qty["販売数量"].sum()
+            if total_qty:
+                category_qty["構成比"] = category_qty["販売数量"] / total_qty
+            else:
+                category_qty["構成比"] = 0
+            bar = alt.Chart(category_qty).mark_bar(
+                cornerRadiusTopLeft=3,
+                cornerRadiusTopRight=3,
+                color=INVENTORY_SERIES_COLOR,
+            ).encode(
+                y=alt.Y("category:N", sort="-x", title="カテゴリ"),
+                x=alt.X("販売数量:Q", title="販売数量", axis=alt.Axis(format=",.0f")),
+                tooltip=[
+                    alt.Tooltip("category:N", title="カテゴリ"),
+                    alt.Tooltip("販売数量:Q", title="販売数量", format=",.0f"),
+                    alt.Tooltip("構成比:Q", title="構成比", format=".1%"),
+                ],
             )
-            category_chart = apply_chart_theme(category_chart)
-            category_chart.update_layout(
-                yaxis_title="販売数量",
-                xaxis_title="カテゴリ",
-                showlegend=False,
+            labels = alt.Chart(category_qty).mark_text(
+                align="left",
+                baseline="middle",
+                dx=6,
+                color="#0F1E2E",
+                fontWeight="bold",
+            ).encode(
+                y=alt.Y("category:N", sort="-x"),
+                x=alt.X("販売数量:Q"),
+                text=alt.Text("構成比:Q", format=".1%"),
             )
-            chart_cols[0].plotly_chart(category_chart, use_container_width=True)
+            chart_cols[0].altair_chart(
+                apply_altair_theme((bar + labels).properties(height=260)),
+                use_container_width=True,
+            )
+            top_category = category_qty.iloc[0]
+            chart_cols[0].caption(
+                f"在庫数量が最も多いカテゴリは{top_category['category']}で、構成比は{top_category['構成比']:.1%}です。"
+            )
         else:
             chart_cols[0].info("カテゴリ別の販売数量が算出できませんでした。")
 
@@ -3984,19 +4295,43 @@ def render_inventory_tab(
         )
         if not product_qty.empty:
             product_qty.rename(columns={"quantity": "販売数量"}, inplace=True)
-            product_chart = px.bar(
-                product_qty,
-                x="product_name",
-                y="販売数量",
-                color_discrete_sequence=[ACCENT_ORANGE],
+            total_qty = product_qty["販売数量"].sum()
+            if total_qty:
+                product_qty["構成比"] = product_qty["販売数量"] / total_qty
+            else:
+                product_qty["構成比"] = 0
+            bar = alt.Chart(product_qty).mark_bar(
+                cornerRadiusTopLeft=3,
+                cornerRadiusTopRight=3,
+                color=INVENTORY_SERIES_COLOR,
+            ).encode(
+                y=alt.Y("product_name:N", sort="-x", title="商品"),
+                x=alt.X("販売数量:Q", title="販売数量", axis=alt.Axis(format=",.0f")),
+                tooltip=[
+                    alt.Tooltip("product_name:N", title="商品"),
+                    alt.Tooltip("販売数量:Q", title="販売数量", format=",.0f"),
+                    alt.Tooltip("構成比:Q", title="構成比", format=".1%"),
+                ],
             )
-            product_chart = apply_chart_theme(product_chart)
-            product_chart.update_layout(
-                yaxis_title="販売数量",
-                xaxis_title="商品",
-                showlegend=False,
+            labels = alt.Chart(product_qty).mark_text(
+                align="left",
+                baseline="middle",
+                dx=6,
+                color="#0F1E2E",
+                fontWeight="bold",
+            ).encode(
+                y=alt.Y("product_name:N", sort="-x"),
+                x=alt.X("販売数量:Q"),
+                text=alt.Text("構成比:Q", format=".1%"),
             )
-            chart_cols[1].plotly_chart(product_chart, use_container_width=True)
+            chart_cols[1].altair_chart(
+                apply_altair_theme((bar + labels).properties(height=260)),
+                use_container_width=True,
+            )
+            top_product = product_qty.iloc[0]
+            chart_cols[1].caption(
+                f"在庫数量が最も多い商品は{top_product['product_name']}で、構成比は{top_product['構成比']:.1%}です。"
+            )
         else:
             chart_cols[1].info("商品別の販売数量が算出できませんでした。")
         st.markdown("</div>", unsafe_allow_html=True)
@@ -4050,20 +4385,50 @@ def render_cash_tab(
         )
         forecast_df = cash_forecast.copy()
         forecast_df["period_start"] = forecast_df["month"].dt.to_timestamp()
-        cash_chart = px.line(
-            forecast_df,
-            x="period_start",
-            y="cash_balance",
-            markers=True,
-            color_discrete_sequence=[ACCENT_BLUE],
+        forecast_df["period_label"] = forecast_df["month"].astype(str)
+        cash_line = alt.Chart(forecast_df).mark_line(
+            color=CASH_SERIES_COLOR, point=alt.OverlayMarkDef(size=60, filled=True)
+        ).encode(
+            x=alt.X("period_start:T", title="期間開始", axis=alt.Axis(format="%Y-%m", labelOverlap=True)),
+            y=alt.Y("cash_balance:Q", title="期末現金残高 (円)", axis=alt.Axis(format=",.0f")),
+            tooltip=[
+                alt.Tooltip("period_label:N", title="期間"),
+                alt.Tooltip("cash_balance:Q", title="期末現金残高", format=",.0f"),
+                alt.Tooltip("net_cf:Q", title="純キャッシュフロー", format=",.0f"),
+            ],
         )
-        cash_chart = apply_chart_theme(cash_chart)
-        cash_chart.update_layout(
-            yaxis_title="円",
-            xaxis_title="期間開始",
-            showlegend=False,
+
+        cash_layers: List[alt.Chart] = [cash_line]
+        cash_target = KGI_TARGETS.get("cash_balance")
+        if cash_target is not None and not pd.isna(cash_target):
+            cash_target_df = pd.DataFrame({"基準": ["目標残高"], "金額": [float(cash_target)]})
+            target_rule = alt.Chart(cash_target_df).mark_rule(strokeDash=[6, 4]).encode(
+                y="金額:Q",
+                color=alt.Color(
+                    "基準:N",
+                    scale=alt.Scale(domain=["目標残高"], range=[BASELINE_SERIES_COLOR]),
+                    legend=alt.Legend(title="基準"),
+                ),
+                tooltip=[alt.Tooltip("金額:Q", title="目標残高", format=",.0f")],
+            )
+            cash_layers.append(target_rule)
+
+        cash_chart = alt.layer(*cash_layers).resolve_scale(color="independent").properties(
+            height=320,
         )
-        st.plotly_chart(cash_chart, use_container_width=True)
+        st.altair_chart(apply_altair_theme(cash_chart), use_container_width=True)
+
+        latest_row = forecast_df.iloc[-1]
+        latest_cash = float(latest_row.get("cash_balance", starting_cash))
+        net_cf = latest_row.get("net_cf")
+        net_cf_text = f"{float(net_cf):,.0f}円" if pd.notna(net_cf) else "-"
+        target_gap_text, _ = format_target_gap(latest_cash, cash_target)
+        summary_parts = [
+            f"最新の期末現金残高は{latest_cash:,.0f}円、純キャッシュフローは{net_cf_text}です。",
+        ]
+        if target_gap_text != "-":
+            summary_parts.append(f"目標残高との差は{target_gap_text}です。")
+        st.caption(" ".join(summary_parts))
         st.markdown("</div>", unsafe_allow_html=True)
     else:
         st.info("資金繰り予測を表示するデータが不足しています。")
@@ -4079,23 +4444,38 @@ def render_cash_tab(
         melted = plan_df.melt(
             id_vars=["period_start"],
             value_vars=["operating_cf", "investment_cf", "financing_cf", "loan_repayment"],
-            var_name="区分",
+            var_name="type",
             value_name="金額",
         )
-        cf_chart = px.bar(
-            melted,
-            x="period_start",
-            y="金額",
-            color="区分",
-            barmode="relative",
-            color_discrete_sequence=PLOTLY_COLORWAY,
+        label_map = {
+            "operating_cf": "営業CF",
+            "investment_cf": "投資CF",
+            "financing_cf": "財務CF",
+            "loan_repayment": "返済",
+        }
+        melted["区分"] = melted["type"].map(label_map)
+        melted = melted.dropna(subset=["区分"])
+        domain = [label_map[key] for key in label_map]
+        range_colors = [CF_COLOR_MAPPING[label] for label in domain]
+        cf_chart = alt.Chart(melted).mark_bar().encode(
+            x=alt.X("period_start:T", title="期間開始", axis=alt.Axis(format="%Y-%m", labelOverlap=True)),
+            y=alt.Y("金額:Q", title="キャッシュフロー (円)", axis=alt.Axis(format=",.0f")),
+            color=alt.Color("区分:N", scale=alt.Scale(domain=domain, range=range_colors), legend=alt.Legend(title="区分")),
+            tooltip=[
+                alt.Tooltip("period_start:T", title="期間"),
+                alt.Tooltip("区分:N", title="区分"),
+                alt.Tooltip("金額:Q", title="金額", format=",.0f"),
+            ],
         )
-        cf_chart = apply_chart_theme(cf_chart)
-        cf_chart.update_layout(
-            yaxis_title="円",
-            xaxis_title="期間開始",
+        st.altair_chart(apply_altair_theme(cf_chart.properties(height=320)), use_container_width=True)
+
+        latest_plan = plan_df.iloc[-1]
+        dominant_key = max(label_map, key=lambda key: abs(float(latest_plan.get(key, 0.0))))
+        dominant_label = label_map[dominant_key]
+        dominant_value = float(latest_plan.get(dominant_key, 0.0))
+        st.caption(
+            f"直近の主要キャッシュフローは{dominant_label}で{dominant_value:,.0f}円です。"
         )
-        st.plotly_chart(cf_chart, use_container_width=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
     with st.expander("キャッシュフロー明細", expanded=False):
