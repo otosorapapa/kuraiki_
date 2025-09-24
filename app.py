@@ -13,6 +13,7 @@ from urllib.parse import parse_qsl
 import numpy as np
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 import streamlit as st
 from streamlit_plotly_events import plotly_events
 
@@ -253,6 +254,13 @@ MCKINSEY_FONT_STACK = (
     "'Noto Sans JP', 'Hiragino Sans', 'Segoe UI', 'Helvetica Neue', sans-serif"
 )
 PLOTLY_COLORWAY = [ACCENT_BLUE, SECONDARY_SLATE, ACCENT_ORANGE, PRIMARY_NAVY_ALT, NEUTRAL_STEEL]
+
+
+KGI_TARGETS = {
+    "sales": 7_000_000,
+    "gross_margin_rate": 0.62,
+    "cash_balance": 5_000_000,
+}
 
 
 def apply_chart_theme(fig):
@@ -682,6 +690,221 @@ def inject_mckinsey_style() -> None:
             border: 1px solid rgba(11,31,51,0.12);
             margin-bottom: 1.8rem;
             color: var(--ink-base);
+        }}
+
+        .kgi-grid {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 1.2rem;
+            margin-bottom: 1.4rem;
+        }}
+
+        .kgi-card {{
+            position: relative;
+            padding: 1.4rem 1.6rem;
+            border-radius: 1.1rem;
+            background: linear-gradient(135deg, rgba(18,58,102,0.92) 0%, rgba(11,31,51,0.95) 70%);
+            color: var(--ink-inverse);
+            border: 1px solid rgba(255,255,255,0.08);
+            box-shadow: 0 22px 48px rgba(5,18,34,0.4);
+        }}
+
+        .kgi-card__title {{
+            font-size: 0.78rem;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            color: rgba(255,255,255,0.68);
+            margin-bottom: 0.75rem;
+        }}
+
+        .kgi-card__value {{
+            font-size: 1.95rem;
+            font-weight: 700;
+            margin-bottom: 0.4rem;
+        }}
+
+        .kgi-card__delta {{
+            font-size: 0.85rem;
+            font-weight: 600;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+        }}
+
+        .kgi-card__delta--up {{
+            color: #8CE99A;
+        }}
+
+        .kgi-card__delta--down {{
+            color: #FFA8A8;
+        }}
+
+        .kgi-card__target {{
+            margin-top: 0.5rem;
+            font-size: 0.78rem;
+            letter-spacing: 0.02em;
+            color: rgba(255,255,255,0.78);
+        }}
+
+        .kgi-card__target--behind {{
+            color: #FFD166;
+        }}
+
+        .dashboard-meta {{
+            display: inline-flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            margin-bottom: 1.4rem;
+        }}
+
+        .dashboard-meta__chip {{
+            background: rgba(11,31,51,0.18);
+            color: var(--ink-inverse);
+            border-radius: 999px;
+            padding: 0.3rem 0.85rem;
+            font-size: 0.78rem;
+            font-weight: 600;
+            letter-spacing: 0.02em;
+        }}
+
+        .kpi-strip {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 1rem;
+            margin-bottom: 1.8rem;
+        }}
+
+        .kpi-strip__card {{
+            background: var(--surface-elevated);
+            border-radius: 0.95rem;
+            border: 1px solid rgba(11,31,51,0.1);
+            padding: 1rem 1.2rem;
+            box-shadow: 0 14px 32px rgba(15,30,46,0.08);
+        }}
+
+        .kpi-strip__label {{
+            font-size: 0.75rem;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            font-weight: 700;
+            color: var(--ink-subtle);
+            margin-bottom: 0.35rem;
+        }}
+
+        .kpi-strip__value {{
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: var(--ink-strong);
+        }}
+
+        .kpi-strip__delta {{
+            margin-top: 0.2rem;
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: var(--ink-subtle);
+        }}
+
+        .kpi-strip__delta--up {{
+            color: #1E5CC3;
+        }}
+
+        .kpi-strip__delta--down {{
+            color: #C24C1D;
+        }}
+
+        .chart-section {{
+            background: var(--surface-elevated);
+            border-radius: 1rem;
+            padding: 1.2rem 1.4rem;
+            border: 1px solid rgba(11,31,51,0.08);
+            box-shadow: 0 12px 30px rgba(15,30,46,0.06);
+            margin-bottom: 1.8rem;
+        }}
+
+        .chart-section__header {{
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.8rem;
+        }}
+
+        .chart-section__title {{
+            font-size: 1.05rem;
+            font-weight: 700;
+            color: var(--ink-strong);
+        }}
+
+        .detail-toolbar {{
+            display: flex;
+            justify-content: flex-end;
+            gap: 0.5rem;
+            margin-bottom: 0.8rem;
+        }}
+
+        .data-status-grid {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 1rem;
+            margin-top: 1.2rem;
+        }}
+
+        .data-status-card {{
+            background: var(--surface-elevated);
+            border-radius: 1rem;
+            border: 1px solid rgba(11,31,51,0.08);
+            padding: 1.1rem 1.3rem;
+            box-shadow: 0 12px 28px rgba(15,30,46,0.06);
+        }}
+
+        .data-status-card__title {{
+            font-size: 0.95rem;
+            font-weight: 700;
+            color: var(--ink-strong);
+            margin-bottom: 0.4rem;
+        }}
+
+        .data-status-card__meta {{
+            font-size: 0.75rem;
+            color: var(--ink-subtle);
+            margin-bottom: 0.6rem;
+        }}
+
+        .data-status-card__body {{
+            font-size: 0.85rem;
+            color: var(--ink-base);
+            margin-bottom: 0.7rem;
+            line-height: 1.4;
+        }}
+
+        .data-status-card__status {{
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            font-weight: 600;
+            font-size: 0.78rem;
+            border-radius: 999px;
+            padding: 0.2rem 0.7rem;
+        }}
+
+        .data-status-card__status--ok {{
+            background: rgba(55, 178, 77, 0.16);
+            color: #2F8F46;
+        }}
+
+        .data-status-card__status--warning {{
+            background: rgba(255, 170, 64, 0.18);
+            color: #C24C1D;
+        }}
+
+        .data-status-card__status--error {{
+            background: rgba(255, 92, 92, 0.2);
+            color: #D1435B;
+        }}
+
+        .data-status-card__footnote {{
+            font-size: 0.75rem;
+            color: var(--ink-subtle);
+            margin-top: 0.6rem;
         }}
 
         .bsc-card {{
@@ -2928,6 +3151,1003 @@ def render_global_search_results(query: str, merged_df: pd.DataFrame) -> None:
                 st.markdown(f"- [{tutorial['title']}]({tutorial['path']})")
         st.markdown("</div>", unsafe_allow_html=True)
 
+
+def _format_currency_compact(value: Optional[float]) -> str:
+    """通貨をスペースなしの円表示に整形する。"""
+
+    if value is None or pd.isna(value):
+        return "-"
+    return f"{float(value):,.0f}円"
+
+
+def format_percentage_delta(value: Optional[float], *, digits: int = 1) -> Optional[str]:
+    """百分率の変化量を%表記で返す。"""
+
+    if value is None or pd.isna(value):
+        return None
+    return f"{float(value) * 100:+.{digits}f}%"
+
+
+def format_target_gap(
+    value: Optional[float],
+    target: Optional[float],
+    *,
+    percentage: bool = False,
+    digits: int = 1,
+) -> Tuple[str, Optional[float]]:
+    """値と目標値の差分をテキストと数値で返す。"""
+
+    if value is None or pd.isna(value) or target is None or pd.isna(target):
+        return "-", None
+    gap = float(value) - float(target)
+    if percentage:
+        text = f"{gap * 100:+.{digits}f} pt"
+    else:
+        text = f"{gap:+,.0f} 円"
+    return text, gap
+
+
+def delta_class_from_value(value: Optional[float]) -> str:
+    """KGIカード用のデルタクラスを決定する。"""
+
+    if value is None or pd.isna(value):
+        return ""
+    numeric = float(value)
+    if numeric > 0:
+        return "kgi-card__delta--up"
+    if numeric < 0:
+        return "kgi-card__delta--down"
+    return ""
+
+
+def kpi_delta_class(value: Optional[float]) -> str:
+    """KPIストリップ用のデルタクラスを返す。"""
+
+    if value is None or pd.isna(value):
+        return ""
+    return "kpi-strip__delta--up" if float(value) >= 0 else "kpi-strip__delta--down"
+
+
+def build_delta_label(prefix: str, formatted: Optional[str], raw_value: Optional[float]) -> str:
+    """矢印付きのデルタ表示を生成する。"""
+
+    if not formatted:
+        return f"{prefix} -"
+    arrow = "―"
+    if raw_value is not None and not pd.isna(raw_value):
+        numeric = float(raw_value)
+        if numeric > 0:
+            arrow = "▲"
+        elif numeric < 0:
+            arrow = "▼"
+    return f"{prefix} {arrow} {formatted}"
+
+
+def render_kgi_cards(
+    selected_kpi_row: pd.Series,
+    period_row: Optional[pd.DataFrame],
+    cash_forecast: pd.DataFrame,
+    starting_cash: float,
+) -> None:
+    """KGI3指標のカードを描画する。"""
+
+    if selected_kpi_row is None or selected_kpi_row.empty:
+        return
+
+    sales_value = selected_kpi_row.get("sales")
+    sales_delta_val: Optional[float] = None
+    if period_row is not None and not period_row.empty:
+        raw = period_row["sales_mom"].iloc[0]
+        if pd.notna(raw):
+            sales_delta_val = float(raw)
+    sales_delta_text = format_percentage_delta(sales_delta_val)
+    sales_gap_text, sales_gap_val = format_target_gap(sales_value, KGI_TARGETS.get("sales"))
+
+    gross_margin_rate = selected_kpi_row.get("gross_margin_rate")
+    gross_delta_val = selected_kpi_row.get("gross_margin_delta")
+    if pd.isna(gross_delta_val):
+        gross_delta_val = None
+    gross_delta_text = format_percentage_delta(gross_delta_val)
+    gross_gap_text, gross_gap_val = format_target_gap(
+        gross_margin_rate,
+        KGI_TARGETS.get("gross_margin_rate"),
+        percentage=True,
+    )
+
+    cash_balance = starting_cash
+    cash_delta_val: Optional[float] = None
+    if cash_forecast is not None and not cash_forecast.empty:
+        first_row = cash_forecast.iloc[0]
+        cash_balance = float(first_row.get("cash_balance", starting_cash))
+        net_cf_val = first_row.get("net_cf")
+        if net_cf_val is not None and not pd.isna(net_cf_val):
+            cash_delta_val = float(net_cf_val)
+    cash_delta_text = (
+        f"{cash_delta_val:+,.0f} 円" if cash_delta_val is not None else None
+    )
+    cash_gap_text, cash_gap_val = format_target_gap(
+        cash_balance,
+        KGI_TARGETS.get("cash_balance"),
+        digits=0,
+    )
+
+    cards_data = [
+        {
+            "title": "月次売上高",
+            "value": _format_currency_compact(sales_value),
+            "delta_label": build_delta_label("前期比", sales_delta_text, sales_delta_val),
+            "delta_class": delta_class_from_value(sales_delta_val),
+            "target_text": sales_gap_text,
+            "target_class": "kgi-card__target--behind"
+            if sales_gap_val is not None and sales_gap_val < 0
+            else "",
+        },
+        {
+            "title": "粗利率",
+            "value": format_percent(gross_margin_rate),
+            "delta_label": build_delta_label("前期比", gross_delta_text, gross_delta_val),
+            "delta_class": delta_class_from_value(gross_delta_val),
+            "target_text": gross_gap_text,
+            "target_class": "kgi-card__target--behind"
+            if gross_gap_val is not None and gross_gap_val < 0
+            else "",
+        },
+        {
+            "title": "資金残高",
+            "value": _format_currency_compact(cash_balance),
+            "delta_label": build_delta_label("前期比", cash_delta_text, cash_delta_val),
+            "delta_class": delta_class_from_value(cash_delta_val),
+            "target_text": cash_gap_text,
+            "target_class": "kgi-card__target--behind"
+            if cash_gap_val is not None and cash_gap_val < 0
+            else "",
+        },
+    ]
+
+    cards_html = []
+    for card in cards_data:
+        cards_html.append(
+            """
+            <div class="kgi-card">
+                <div class="kgi-card__title">{title}</div>
+                <div class="kgi-card__value">{value}</div>
+                <div class="kgi-card__delta {delta_class}">{delta_label}</div>
+                <div class="kgi-card__target {target_class}">目標差 {target_text}</div>
+            </div>
+            """.format(
+                title=html.escape(card["title"]),
+                value=html.escape(card["value"] if card["value"] else "-"),
+                delta_class=card["delta_class"],
+                delta_label=html.escape(card["delta_label"]),
+                target_class=card["target_class"],
+                target_text=html.escape(card["target_text"]),
+            )
+        )
+
+    st.markdown(
+        "<div class='kgi-grid'>{}</div>".format("".join(cards_html)),
+        unsafe_allow_html=True,
+    )
+
+
+def render_dashboard_meta(
+    latest_label: str, period_label: str, record_count: int, alert_count: int
+) -> None:
+    """データのメタ情報をチップ状に表示する。"""
+
+    chips = [
+        ("📅 最新データ", latest_label or "-"),
+        ("🗓 表示期間", period_label or "-"),
+        ("💾 対象レコード", f"{record_count:,} 件"),
+    ]
+    if alert_count:
+        chips.append(("⚠️ アラート", f"{alert_count} 件"))
+
+    chips_html = "".join(
+        "<span class='dashboard-meta__chip'>{label}: {value}</span>".format(
+            label=html.escape(label), value=html.escape(value)
+        )
+        for label, value in chips
+    )
+    st.markdown(f"<div class='dashboard-meta'>{chips_html}</div>", unsafe_allow_html=True)
+
+
+def render_first_level_kpi_strip(
+    kpi_period_summary: pd.DataFrame, selected_kpi_row: pd.Series
+) -> None:
+    """第1階層KPIを4枚のカードで表示する。"""
+
+    if selected_kpi_row is None or selected_kpi_row.empty:
+        return
+
+    prev_row: Optional[pd.Series] = None
+    if (
+        kpi_period_summary is not None
+        and not kpi_period_summary.empty
+        and "period" in kpi_period_summary.columns
+    ):
+        current_period = selected_kpi_row.get("period")
+        if current_period is not None:
+            candidates = kpi_period_summary[kpi_period_summary["period"] < current_period]
+            if not candidates.empty:
+                prev_row = candidates.iloc[-1]
+
+    active_value = selected_kpi_row.get("active_customers_avg")
+    prev_active = prev_row.get("active_customers_avg") if prev_row is not None else np.nan
+    active_delta: Optional[float] = None
+    if pd.notna(active_value) and pd.notna(prev_active):
+        active_delta = float(active_value) - float(prev_active)
+
+    ltv_value = selected_kpi_row.get("ltv")
+    ltv_delta = selected_kpi_row.get("ltv_delta")
+    if pd.isna(ltv_delta):
+        ltv_delta = None
+
+    arpu_value = selected_kpi_row.get("arpu")
+    arpu_delta = selected_kpi_row.get("arpu_delta")
+    if pd.isna(arpu_delta):
+        arpu_delta = None
+
+    churn_value = selected_kpi_row.get("churn_rate")
+    churn_delta = selected_kpi_row.get("churn_delta")
+    if pd.isna(churn_delta):
+        churn_delta = None
+
+    metrics = [
+        {
+            "label": "月次顧客数",
+            "value": format_number(active_value, digits=0, unit=" 人"),
+            "delta_value": active_delta,
+            "delta_text": format_delta(active_delta, digits=0, unit=" 人")
+            if active_delta is not None
+            else None,
+        },
+        {
+            "label": "LTV",
+            "value": _format_currency_compact(ltv_value),
+            "delta_value": ltv_delta,
+            "delta_text": format_delta(ltv_delta, digits=0, unit=" 円")
+            if ltv_delta is not None
+            else None,
+        },
+        {
+            "label": "ARPU",
+            "value": _format_currency_compact(arpu_value),
+            "delta_value": arpu_delta,
+            "delta_text": format_delta(arpu_delta, digits=0, unit=" 円")
+            if arpu_delta is not None
+            else None,
+        },
+        {
+            "label": "解約率",
+            "value": format_percent(churn_value),
+            "delta_value": churn_delta,
+            "delta_text": format_delta(churn_delta, percentage=True)
+            if churn_delta is not None
+            else None,
+        },
+    ]
+
+    cards_html = []
+    for metric in metrics:
+        delta_label = build_delta_label("前月比", metric["delta_text"], metric["delta_value"])
+        cards_html.append(
+            """
+            <div class="kpi-strip__card">
+                <div class="kpi-strip__label">{label}</div>
+                <div class="kpi-strip__value">{value}</div>
+                <div class="kpi-strip__delta {delta_class}">{delta}</div>
+            </div>
+            """.format(
+                label=html.escape(metric["label"]),
+                value=html.escape(metric["value"] if metric["value"] else "-"),
+                delta_class=kpi_delta_class(metric["delta_value"]),
+                delta=html.escape(delta_label),
+            )
+        )
+
+    st.markdown(
+        "<div class='kpi-strip'>{}</div>".format("".join(cards_html)),
+        unsafe_allow_html=True,
+    )
+
+
+def render_sales_tab(
+    merged_df: pd.DataFrame,
+    period_summary: pd.DataFrame,
+    channel_share_df: pd.DataFrame,
+    category_share_df: pd.DataFrame,
+    selected_granularity_label: str,
+) -> None:
+    """売上タブの可視化と明細を描画する。"""
+
+    if period_summary is not None and not period_summary.empty:
+        st.markdown("<div class='chart-section'>", unsafe_allow_html=True)
+        st.markdown(
+            "<div class='chart-section__header'><div class='chart-section__title'>売上推移</div></div>",
+            unsafe_allow_html=True,
+        )
+        latest_periods = period_summary.tail(12).copy()
+        latest_periods["period_start"] = pd.to_datetime(latest_periods["period_start"])
+        sales_chart_source = latest_periods.rename(
+            columns={
+                "period_start": "期間開始",
+                "period_label": "期間",
+                "sales_amount": "現状売上",
+                "prev_year_sales": "前年同期間売上",
+            }
+        )
+        value_columns = [
+            col for col in ["現状売上", "前年同期間売上"] if col in sales_chart_source.columns
+        ]
+        if value_columns:
+            melted = sales_chart_source.melt(
+                id_vars=["期間開始", "期間"],
+                value_vars=value_columns,
+                var_name="指標",
+                value_name="金額",
+            )
+            sales_chart = px.line(
+                melted,
+                x="期間開始",
+                y="金額",
+                color="指標",
+                markers=True,
+                hover_data={"期間": True},
+                color_discrete_sequence=[ACCENT_BLUE, SECONDARY_SLATE],
+            )
+            sales_chart = apply_chart_theme(sales_chart)
+            sales_chart.update_layout(
+                yaxis_title="円",
+                xaxis_title=f"{selected_granularity_label}開始日",
+                legend=dict(title="", itemclick="toggleothers", itemdoubleclick="toggle"),
+            )
+            st.plotly_chart(sales_chart, use_container_width=True)
+        else:
+            st.caption("売上推移を表示するための指標が不足しています。")
+        st.markdown("</div>", unsafe_allow_html=True)
+    else:
+        st.info("売上推移を表示するデータが不足しています。")
+
+    if (channel_share_df is not None and not channel_share_df.empty) or (
+        category_share_df is not None and not category_share_df.empty
+    ):
+        st.markdown("<div class='chart-section'>", unsafe_allow_html=True)
+        st.markdown(
+            "<div class='chart-section__header'><div class='chart-section__title'>チャネル・カテゴリ内訳</div></div>",
+            unsafe_allow_html=True,
+        )
+        chart_cols = st.columns(2)
+        if channel_share_df is not None and not channel_share_df.empty:
+            channel_chart = px.bar(
+                channel_share_df.sort_values("sales_amount", ascending=False),
+                x="channel",
+                y="sales_amount",
+                color_discrete_sequence=[ACCENT_BLUE],
+            )
+            channel_chart = apply_chart_theme(channel_chart)
+            channel_chart.update_layout(
+                yaxis_title="売上高",
+                xaxis_title="チャネル",
+                showlegend=False,
+            )
+            chart_cols[0].plotly_chart(channel_chart, use_container_width=True)
+        else:
+            chart_cols[0].info("チャネル別の集計データがありません。")
+
+        if category_share_df is not None and not category_share_df.empty:
+            category_chart = px.bar(
+                category_share_df.sort_values("sales_amount", ascending=False),
+                x="category",
+                y="sales_amount",
+                color_discrete_sequence=[ACCENT_ORANGE],
+            )
+            category_chart = apply_chart_theme(category_chart)
+            category_chart.update_layout(
+                yaxis_title="売上高",
+                xaxis_title="カテゴリ",
+                showlegend=False,
+            )
+            chart_cols[1].plotly_chart(category_chart, use_container_width=True)
+        else:
+            chart_cols[1].info("カテゴリ別の集計データがありません。")
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    with st.expander("売上明細（商品別・上位50件）", expanded=False):
+        if merged_df is None or merged_df.empty:
+            st.info("売上データがありません。")
+        else:
+            detail_df = (
+                merged_df.groupby(["product_code", "product_name", "category"])
+                .agg(
+                    売上高=("sales_amount", "sum"),
+                    粗利=("net_gross_profit", "sum"),
+                    販売数量=("quantity", "sum"),
+                )
+                .reset_index()
+                .sort_values("売上高", ascending=False)
+                .head(50)
+            )
+            if detail_df.empty:
+                st.info("表示できる明細がありません。")
+            else:
+                detail_df["粗利率"] = np.where(
+                    detail_df["売上高"] != 0,
+                    detail_df["粗利"] / detail_df["売上高"],
+                    np.nan,
+                )
+                display_df = detail_df.copy()
+                display_df["販売数量"] = display_df["販売数量"].map(lambda v: f"{v:,.0f}")
+                for column in ["売上高", "粗利"]:
+                    display_df[column] = display_df[column].map(lambda v: f"{v:,.0f}")
+                display_df["粗利率"] = display_df["粗利率"].map(
+                    lambda v: f"{v * 100:.1f}%" if pd.notna(v) else "-"
+                )
+                st.dataframe(display_df, hide_index=True, use_container_width=True)
+                toolbar = st.columns(2)
+                with toolbar[0]:
+                    download_button_from_df("CSV出力", detail_df, "sales_detail.csv")
+                with toolbar[1]:
+                    st.button("PDF出力 (準備中)", disabled=True)
+
+
+def render_gross_tab(
+    merged_df: pd.DataFrame,
+    period_summary: pd.DataFrame,
+    selected_granularity_label: str,
+) -> None:
+    """粗利タブのグラフと明細を描画する。"""
+
+    if period_summary is not None and not period_summary.empty:
+        st.markdown("<div class='chart-section'>", unsafe_allow_html=True)
+        st.markdown(
+            "<div class='chart-section__header'><div class='chart-section__title'>粗利と粗利率の推移</div></div>",
+            unsafe_allow_html=True,
+        )
+        latest_periods = period_summary.tail(12).copy()
+        latest_periods["period_start"] = pd.to_datetime(latest_periods["period_start"])
+        gross_fig = go.Figure()
+        gross_fig.add_bar(
+            x=latest_periods["period_start"],
+            y=latest_periods["net_gross_profit"],
+            name="粗利",
+            marker_color=ACCENT_BLUE,
+        )
+        gross_fig.add_trace(
+            go.Scatter(
+                x=latest_periods["period_start"],
+                y=latest_periods["gross_margin_rate"] * 100,
+                name="粗利率",
+                mode="lines+markers",
+                line=dict(color=ACCENT_ORANGE),
+                yaxis="y2",
+            )
+        )
+        gross_fig.update_layout(
+            yaxis=dict(title="粗利 (円)"),
+            yaxis2=dict(title="粗利率 (%)", overlaying="y", side="right", tickformat=".1f"),
+            xaxis=dict(title=f"{selected_granularity_label}開始日"),
+            legend=dict(title="", orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+            bargap=0.25,
+        )
+        gross_fig = apply_chart_theme(gross_fig)
+        st.plotly_chart(gross_fig, use_container_width=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+    else:
+        st.info("粗利推移を表示するデータが不足しています。")
+
+    if merged_df is not None and not merged_df.empty:
+        st.markdown("<div class='chart-section'>", unsafe_allow_html=True)
+        st.markdown(
+            "<div class='chart-section__header'><div class='chart-section__title'>粗利構成</div></div>",
+            unsafe_allow_html=True,
+        )
+        chart_cols = st.columns(2)
+        category_gross = (
+            merged_df.groupby("category")["net_gross_profit"].sum().reset_index().sort_values("net_gross_profit", ascending=False).head(10)
+        )
+        if not category_gross.empty:
+            category_chart = px.bar(
+                category_gross,
+                x="category",
+                y="net_gross_profit",
+                color_discrete_sequence=[ACCENT_BLUE],
+            )
+            category_chart = apply_chart_theme(category_chart)
+            category_chart.update_layout(
+                yaxis_title="粗利",
+                xaxis_title="カテゴリ",
+                showlegend=False,
+            )
+            chart_cols[0].plotly_chart(category_chart, use_container_width=True)
+        else:
+            chart_cols[0].info("カテゴリ別の粗利データがありません。")
+
+        product_gross = (
+            merged_df.groupby("product_name")["net_gross_profit"].sum().reset_index().sort_values("net_gross_profit", ascending=False).head(10)
+        )
+        if not product_gross.empty:
+            product_chart = px.bar(
+                product_gross,
+                x="product_name",
+                y="net_gross_profit",
+                color_discrete_sequence=[ACCENT_ORANGE],
+            )
+            product_chart = apply_chart_theme(product_chart)
+            product_chart.update_layout(
+                yaxis_title="粗利",
+                xaxis_title="商品",
+                showlegend=False,
+            )
+            chart_cols[1].plotly_chart(product_chart, use_container_width=True)
+        else:
+            chart_cols[1].info("商品別の粗利データがありません。")
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    with st.expander("原価率・粗利テーブル", expanded=False):
+        if merged_df is None or merged_df.empty:
+            st.info("データがありません。")
+        else:
+            detail_df = (
+                merged_df.groupby(["product_code", "product_name", "category"])
+                .agg(
+                    売上高=("sales_amount", "sum"),
+                    粗利=("net_gross_profit", "sum"),
+                    推定原価=("estimated_cost", "sum"),
+                    原価率=("cost_rate", "mean"),
+                )
+                .reset_index()
+            )
+            if detail_df.empty:
+                st.info("表示できる明細がありません。")
+            else:
+                detail_df["粗利率"] = np.where(
+                    detail_df["売上高"] != 0,
+                    detail_df["粗利"] / detail_df["売上高"],
+                    np.nan,
+                )
+                detail_df.sort_values("粗利", ascending=False, inplace=True)
+                display_df = detail_df.copy()
+                for column in ["売上高", "粗利", "推定原価"]:
+                    display_df[column] = display_df[column].map(lambda v: f"{v:,.0f}")
+                display_df["原価率"] = display_df["原価率"].map(
+                    lambda v: f"{v * 100:.1f}%" if pd.notna(v) else "-"
+                )
+                display_df["粗利率"] = display_df["粗利率"].map(
+                    lambda v: f"{v * 100:.1f}%" if pd.notna(v) else "-"
+                )
+                st.dataframe(display_df.head(50), hide_index=True, use_container_width=True)
+                toolbar = st.columns(2)
+                with toolbar[0]:
+                    download_button_from_df("CSV出力", detail_df, "gross_profit_detail.csv")
+                with toolbar[1]:
+                    st.button("PDF出力 (準備中)", disabled=True)
+
+
+def render_inventory_tab(
+    merged_df: pd.DataFrame,
+    kpi_period_summary: pd.DataFrame,
+    selected_kpi_row: pd.Series,
+) -> None:
+    """在庫タブの主要指標と推計表を表示する。"""
+
+    if kpi_period_summary is not None and not kpi_period_summary.empty:
+        st.markdown("<div class='chart-section'>", unsafe_allow_html=True)
+        st.markdown(
+            "<div class='chart-section__header'><div class='chart-section__title'>在庫KPIの推移</div></div>",
+            unsafe_allow_html=True,
+        )
+        history = kpi_period_summary.tail(12).copy()
+        history["period_start"] = pd.to_datetime(history["period_start"])
+        chart_cols = st.columns(2)
+        turnover_chart = px.line(
+            history,
+            x="period_start",
+            y="inventory_turnover_days",
+            markers=True,
+            color_discrete_sequence=[ACCENT_BLUE],
+        )
+        turnover_chart = apply_chart_theme(turnover_chart)
+        turnover_chart.update_layout(
+            yaxis_title="在庫回転日数",
+            xaxis_title="期間開始",
+            showlegend=False,
+        )
+        chart_cols[0].plotly_chart(turnover_chart, use_container_width=True)
+
+        stockout_chart = px.line(
+            history,
+            x="period_start",
+            y=history["stockout_rate"] * 100,
+            markers=True,
+            color_discrete_sequence=[ACCENT_ORANGE],
+        )
+        stockout_chart = apply_chart_theme(stockout_chart)
+        stockout_chart.update_layout(
+            yaxis_title="欠品率 (%)",
+            xaxis_title="期間開始",
+            showlegend=False,
+        )
+        chart_cols[1].plotly_chart(stockout_chart, use_container_width=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+    else:
+        st.info("在庫関連KPIの履歴がありません。")
+
+    if merged_df is not None and not merged_df.empty:
+        st.markdown("<div class='chart-section'>", unsafe_allow_html=True)
+        st.markdown(
+            "<div class='chart-section__header'><div class='chart-section__title'>在庫構成の推計</div></div>",
+            unsafe_allow_html=True,
+        )
+        chart_cols = st.columns(2)
+        category_qty = (
+            merged_df.groupby("category")["quantity"].sum().reset_index().sort_values("quantity", ascending=False).head(10)
+        )
+        if not category_qty.empty:
+            category_qty.rename(columns={"quantity": "販売数量"}, inplace=True)
+            category_chart = px.bar(
+                category_qty,
+                x="category",
+                y="販売数量",
+                color_discrete_sequence=[ACCENT_BLUE],
+            )
+            category_chart = apply_chart_theme(category_chart)
+            category_chart.update_layout(
+                yaxis_title="販売数量",
+                xaxis_title="カテゴリ",
+                showlegend=False,
+            )
+            chart_cols[0].plotly_chart(category_chart, use_container_width=True)
+        else:
+            chart_cols[0].info("カテゴリ別の販売数量が算出できませんでした。")
+
+        product_qty = (
+            merged_df.groupby("product_name")["quantity"].sum().reset_index().sort_values("quantity", ascending=False).head(10)
+        )
+        if not product_qty.empty:
+            product_qty.rename(columns={"quantity": "販売数量"}, inplace=True)
+            product_chart = px.bar(
+                product_qty,
+                x="product_name",
+                y="販売数量",
+                color_discrete_sequence=[ACCENT_ORANGE],
+            )
+            product_chart = apply_chart_theme(product_chart)
+            product_chart.update_layout(
+                yaxis_title="販売数量",
+                xaxis_title="商品",
+                showlegend=False,
+            )
+            chart_cols[1].plotly_chart(product_chart, use_container_width=True)
+        else:
+            chart_cols[1].info("商品別の販売数量が算出できませんでした。")
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    with st.expander("在庫推計テーブル", expanded=False):
+        if merged_df is None or merged_df.empty:
+            st.info("データがありません。")
+        else:
+            detail_df = (
+                merged_df.groupby(["product_code", "product_name", "category"])
+                .agg(
+                    販売数量=("quantity", "sum"),
+                    売上高=("sales_amount", "sum"),
+                    推定原価=("estimated_cost", "sum"),
+                )
+                .reset_index()
+            )
+            if detail_df.empty:
+                st.info("表示できる明細がありません。")
+            else:
+                turnover_days = selected_kpi_row.get("inventory_turnover_days")
+                if turnover_days is not None and not pd.isna(turnover_days) and turnover_days > 0:
+                    detail_df["推定在庫金額"] = detail_df["推定原価"] / 30.0 * float(turnover_days)
+                else:
+                    detail_df["推定在庫金額"] = np.nan
+                detail_df.sort_values("推定在庫金額", ascending=False, inplace=True)
+                display_df = detail_df.copy()
+                display_df["販売数量"] = display_df["販売数量"].map(lambda v: f"{v:,.0f}")
+                for column in ["売上高", "推定原価", "推定在庫金額"]:
+                    display_df[column] = display_df[column].map(lambda v: f"{v:,.0f}" if pd.notna(v) else "-")
+                st.dataframe(display_df.head(50), hide_index=True, use_container_width=True)
+                toolbar = st.columns(2)
+                with toolbar[0]:
+                    download_button_from_df("CSV出力", detail_df, "inventory_overview.csv")
+                with toolbar[1]:
+                    st.button("PDF出力 (準備中)", disabled=True)
+
+
+def render_cash_tab(
+    cash_plan: pd.DataFrame,
+    cash_forecast: pd.DataFrame,
+    starting_cash: float,
+) -> None:
+    """資金タブのグラフと明細を描画する。"""
+
+    if cash_forecast is not None and not cash_forecast.empty:
+        st.markdown("<div class='chart-section'>", unsafe_allow_html=True)
+        st.markdown(
+            "<div class='chart-section__header'><div class='chart-section__title'>キャッシュ残高推移</div></div>",
+            unsafe_allow_html=True,
+        )
+        forecast_df = cash_forecast.copy()
+        forecast_df["period_start"] = forecast_df["month"].dt.to_timestamp()
+        cash_chart = px.line(
+            forecast_df,
+            x="period_start",
+            y="cash_balance",
+            markers=True,
+            color_discrete_sequence=[ACCENT_BLUE],
+        )
+        cash_chart = apply_chart_theme(cash_chart)
+        cash_chart.update_layout(
+            yaxis_title="円",
+            xaxis_title="期間開始",
+            showlegend=False,
+        )
+        st.plotly_chart(cash_chart, use_container_width=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+    else:
+        st.info("資金繰り予測を表示するデータが不足しています。")
+
+    if cash_plan is not None and not cash_plan.empty:
+        st.markdown("<div class='chart-section'>", unsafe_allow_html=True)
+        st.markdown(
+            "<div class='chart-section__header'><div class='chart-section__title'>キャッシュフロー内訳</div></div>",
+            unsafe_allow_html=True,
+        )
+        plan_df = cash_plan.copy()
+        plan_df["period_start"] = plan_df["month"].dt.to_timestamp()
+        melted = plan_df.melt(
+            id_vars=["period_start"],
+            value_vars=["operating_cf", "investment_cf", "financing_cf", "loan_repayment"],
+            var_name="区分",
+            value_name="金額",
+        )
+        cf_chart = px.bar(
+            melted,
+            x="period_start",
+            y="金額",
+            color="区分",
+            barmode="relative",
+            color_discrete_sequence=PLOTLY_COLORWAY,
+        )
+        cf_chart = apply_chart_theme(cf_chart)
+        cf_chart.update_layout(
+            yaxis_title="円",
+            xaxis_title="期間開始",
+        )
+        st.plotly_chart(cf_chart, use_container_width=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    with st.expander("キャッシュフロー明細", expanded=False):
+        if cash_plan is None or cash_plan.empty:
+            st.info("キャッシュフロー計画データがありません。")
+        else:
+            table_df = cash_plan.copy()
+            table_df["month_label"] = table_df["month"].astype(str)
+            export_df = table_df[[
+                "month_label",
+                "operating_cf",
+                "investment_cf",
+                "financing_cf",
+                "loan_repayment",
+            ]].copy()
+            if cash_forecast is not None and not cash_forecast.empty:
+                forecast_export = cash_forecast.copy()
+                forecast_export["month_label"] = forecast_export["month"].astype(str)
+                export_df = export_df.merge(
+                    forecast_export[["month_label", "net_cf", "cash_balance"]],
+                    on="month_label",
+                    how="left",
+                )
+            else:
+                export_df["net_cf"] = (
+                    export_df["operating_cf"]
+                    + export_df["financing_cf"]
+                    - export_df["investment_cf"]
+                    - export_df["loan_repayment"]
+                )
+                export_df["cash_balance"] = (
+                    export_df["net_cf"].cumsum() + float(starting_cash)
+                )
+
+            display_df = export_df.rename(
+                columns={
+                    "month_label": "月",
+                    "operating_cf": "営業CF",
+                    "investment_cf": "投資CF",
+                    "financing_cf": "財務CF",
+                    "loan_repayment": "返済",
+                    "net_cf": "純キャッシュフロー",
+                    "cash_balance": "期末現金残高",
+                }
+            )
+            format_columns = ["営業CF", "投資CF", "財務CF", "返済", "純キャッシュフロー", "期末現金残高"]
+            formatted_df = display_df.copy()
+            for column in format_columns:
+                formatted_df[column] = formatted_df[column].map(lambda v: f"{v:,.0f}" if pd.notna(v) else "-")
+            st.dataframe(formatted_df, hide_index=True, use_container_width=True)
+            toolbar = st.columns(2)
+            with toolbar[0]:
+                download_button_from_df("CSV出力", display_df, "cash_flow_plan.csv")
+            with toolbar[1]:
+                st.button("PDF出力 (準備中)", disabled=True)
+
+
+def render_data_status_section(
+    merged_df: pd.DataFrame,
+    cost_df: pd.DataFrame,
+    subscription_df: pd.DataFrame,
+    *,
+    use_sample_data: bool,
+    automated_sales_data: Dict[str, Any],
+) -> None:
+    """データアップロード状況をカード形式で表示する。"""
+
+    st.markdown("### データアップロード状況")
+    st.caption("チャネルや補助データの最新状態を確認できます。")
+
+    cards: List[str] = []
+
+    if merged_df is not None and not merged_df.empty:
+        channel_summary = (
+            merged_df.groupby("channel")
+            .agg(
+                records=("sales_amount", "size"),
+                amount=("sales_amount", "sum"),
+                latest=("order_date", "max"),
+                earliest=("order_date", "min"),
+            )
+            .reset_index()
+            .sort_values("records", ascending=False)
+        )
+        for _, row in channel_summary.iterrows():
+            latest = pd.to_datetime(row["latest"]).strftime("%Y-%m-%d") if pd.notna(row["latest"]) else "-"
+            earliest = pd.to_datetime(row["earliest"]).strftime("%Y-%m-%d") if pd.notna(row["earliest"]) else "-"
+            meta = f"{earliest} 〜 {latest}"
+            body = f"件数: {int(row['records']):,} / 売上高: {row['amount']:,.0f}円"
+            cards.append(
+                """
+                <div class="data-status-card">
+                    <div class="data-status-card__title">{title}</div>
+                    <div class="data-status-card__meta">{meta}</div>
+                    <div class="data-status-card__body">{body}</div>
+                    <div class="data-status-card__status data-status-card__status--ok">✅ 正常</div>
+                </div>
+                """.format(
+                    title=html.escape(str(row["channel"])),
+                    meta=html.escape(meta),
+                    body=html.escape(body),
+                )
+            )
+    else:
+        cards.append(
+            """
+            <div class="data-status-card">
+                <div class="data-status-card__title">売上データ</div>
+                <div class="data-status-card__meta">-</div>
+                <div class="data-status-card__body">売上ファイルが未読み込みです。</div>
+                <div class="data-status-card__status data-status-card__status--warning">⚠️ 未取込</div>
+            </div>
+            """
+        )
+
+    cost_loaded = cost_df is not None and not cost_df.empty
+    cost_status_class = (
+        "data-status-card__status data-status-card__status--ok"
+        if cost_loaded
+        else "data-status-card__status data-status-card__status--warning"
+    )
+    cost_status_label = "✅ 正常" if cost_loaded else "⚠️ 未登録"
+    cost_body = (
+        f"登録済みアイテム: {len(cost_df):,}件" if cost_loaded else "原価率データが未設定です。"
+    )
+    cards.append(
+        """
+        <div class="data-status-card">
+            <div class="data-status-card__title">原価率マスタ</div>
+            <div class="data-status-card__meta">-</div>
+            <div class="data-status-card__body">{body}</div>
+            <div class="{status_class}">{status}</div>
+        </div>
+        """.format(
+            body=html.escape(cost_body),
+            status_class=cost_status_class,
+            status=html.escape(cost_status_label),
+        )
+    )
+
+    sub_loaded = subscription_df is not None and not subscription_df.empty
+    sub_status_class = (
+        "data-status-card__status data-status-card__status--ok"
+        if sub_loaded
+        else "data-status-card__status data-status-card__status--warning"
+    )
+    sub_status_label = "✅ 正常" if sub_loaded else "⚠️ 未登録"
+    sub_body = (
+        f"月次レコード: {len(subscription_df):,}件" if sub_loaded else "サブスクKPIが未入力です。"
+    )
+    cards.append(
+        """
+        <div class="data-status-card">
+            <div class="data-status-card__title">定期購買 / KPIデータ</div>
+            <div class="data-status-card__meta">-</div>
+            <div class="data-status-card__body">{body}</div>
+            <div class="{status_class}">{status}</div>
+        </div>
+        """.format(
+            body=html.escape(sub_body),
+            status_class=sub_status_class,
+            status=html.escape(sub_status_label),
+        )
+    )
+
+    if automated_sales_data:
+        api_last_fetched = st.session_state.get("api_last_fetched", {})
+        api_reports = st.session_state.get("api_sales_validation", {})
+        api_lines: List[str] = []
+        error_count = 0
+        warning_count = 0
+        ok_count = 0
+        for channel, df in automated_sales_data.items():
+            last_fetch = api_last_fetched.get(channel)
+            report = api_reports.get(channel)
+            status_label = "正常"
+            status_icon = "✅"
+            if report and getattr(report, "has_errors", lambda: False)():
+                status_label = "エラー"
+                status_icon = "⛔"
+                error_count += 1
+            elif report and getattr(report, "has_warnings", lambda: False)():
+                status_label = "警告あり"
+                status_icon = "⚠️"
+                warning_count += 1
+            else:
+                ok_count += 1
+            timestamp = last_fetch.strftime("%Y-%m-%d %H:%M") if last_fetch else "-"
+            api_lines.append(f"{channel}: {status_label} / 取得 {timestamp}")
+        if error_count:
+            api_status_class = "data-status-card__status data-status-card__status--error"
+            api_status_label = f"⛔ エラー {error_count}件"
+        elif warning_count:
+            api_status_class = "data-status-card__status data-status-card__status--warning"
+            api_status_label = f"⚠️ 警告 {warning_count}件"
+        else:
+            api_status_class = "data-status-card__status data-status-card__status--ok"
+            api_status_label = f"✅ 正常 {ok_count}件"
+
+        footnote_html = ""
+        if api_lines:
+            footnote_html = "<div class='data-status-card__footnote'>{}</div>".format(
+                "<br />".join(html.escape(line) for line in api_lines)
+            )
+
+        cards.append(
+            """
+            <div class="data-status-card">
+                <div class="data-status-card__title">API連携</div>
+                <div class="data-status-card__meta">接続チャネル: {count}件</div>
+                <div class="data-status-card__body">自動取得の最終実行状況を表示します。</div>
+                <div class="{status_class}">{status}</div>
+                {footnote}
+            </div>
+            """.format(
+                count=len(automated_sales_data),
+                status_class=api_status_class,
+                status=html.escape(api_status_label),
+                footnote=footnote_html,
+            )
+        )
+
+    st.markdown(
+        "<div class='data-status-grid'>{}</div>".format("".join(cards)),
+        unsafe_allow_html=True,
+    )
+
+    if use_sample_data:
+        st.caption("※ 現在はサンプルデータを表示しています。実データをアップロードすると自動的に置き換わります。")
+
 def render_sidebar_upload_expander(
     label: str,
     *,
@@ -3283,8 +4503,6 @@ def main() -> None:
     total_records = int(len(merged_df)) if not merged_df.empty else 0
     alert_count = len(alerts) if alerts else 0
 
-    render_hero_section(latest_label, range_label, total_records, alert_count)
-
     search_query = render_search_bar()
 
     with st.container():
@@ -3293,8 +4511,6 @@ def main() -> None:
         st.markdown("</div>", unsafe_allow_html=True)
 
     render_breadcrumb(selected_main, selected_section)
-
-    render_status_banner(alerts)
 
     if search_query:
         render_global_search_results(search_query, merged_df)
@@ -3323,224 +4539,40 @@ def main() -> None:
             period_start = pd.to_datetime(selected_kpi_row["period_start"]).date()
             period_end = pd.to_datetime(selected_kpi_row["period_end"]).date()
 
-            sales_delta_text = None
-            if not period_row.empty:
-                sales_mom_val = period_row["sales_mom"].iloc[0]
-                if pd.notna(sales_mom_val):
-                    sales_delta_text = f"{sales_mom_val * 100:.2f}%"
-
-            gross_margin_delta_text = format_delta(
-                selected_kpi_row.get("gross_margin_delta"), percentage=True
-            )
-            repeat_delta_text = format_delta(
-                selected_kpi_row.get("repeat_delta"), percentage=True
-            )
-            churn_delta_text = format_delta(
-                selected_kpi_row.get("churn_delta"), percentage=True
-            )
-            inventory_delta_text = format_delta(
-                selected_kpi_row.get("inventory_turnover_delta"), digits=1, unit=" 日"
-            )
-            stockout_delta_text = format_delta(
-                selected_kpi_row.get("stockout_delta"), percentage=True
-            )
-            training_delta_text = format_delta(
-                selected_kpi_row.get("training_delta"), digits=0, unit=" 回"
-            )
-            new_product_delta_text = format_delta(
-                selected_kpi_row.get("new_product_delta"), digits=0, unit=" 件"
-            )
-
-            st.markdown("### バランスト・スコアカード（主要KPI）")
-            st.caption(
-                "社長・店長・経理の主要意思決定を支える4視点をYellowfin/Sisenseの原則に基づき整理しています。"
-            )
-            bsc_cols = st.columns(4)
-            with bsc_cols[0]:
-                render_bsc_card(
-                    title="財務",
-                    icon="💰",
-                    subtitle="社長: キャッシュと粗利の即時判断",
-                    metrics=[
-                        {
-                            "label": f"{selected_granularity_label}売上高",
-                            "value": format_currency(selected_kpi_row.get("sales")),
-                            "delta": sales_delta_text,
-                        },
-                        {
-                            "label": "粗利益率",
-                            "value": format_percent(selected_kpi_row.get("gross_margin_rate")),
-                            "delta": gross_margin_delta_text,
-                        },
-                    ],
-                )
-            with bsc_cols[1]:
-                render_bsc_card(
-                    title="顧客",
-                    icon="🤝",
-                    subtitle="店長: リピート基盤の維持状況",
-                    metrics=[
-                        {
-                            "label": "リピーター比率",
-                            "value": format_percent(selected_kpi_row.get("repeat_rate")),
-                            "delta": repeat_delta_text,
-                        },
-                        {
-                            "label": "解約率",
-                            "value": format_percent(selected_kpi_row.get("churn_rate")),
-                            "delta": churn_delta_text,
-                        },
-                    ],
-                )
-            with bsc_cols[2]:
-                render_bsc_card(
-                    title="内部プロセス",
-                    icon="🏭",
-                    subtitle="現場: 欠品・在庫のコントロール",
-                    metrics=[
-                        {
-                            "label": "在庫回転日数",
-                            "value": format_number(
-                                selected_kpi_row.get("inventory_turnover_days"), digits=1, unit=" 日"
-                            ),
-                            "delta": inventory_delta_text,
-                        },
-                        {
-                            "label": "欠品率",
-                            "value": format_percent(selected_kpi_row.get("stockout_rate")),
-                            "delta": stockout_delta_text,
-                        },
-                    ],
-                )
-            with bsc_cols[3]:
-                render_bsc_card(
-                    title="学習と成長",
-                    icon="📚",
-                    subtitle="経理・人事: 組織能力の強化",
-                    metrics=[
-                        {
-                            "label": "研修実施数",
-                            "value": format_number(
-                                selected_kpi_row.get("training_sessions"), digits=0, unit=" 回"
-                            ),
-                            "delta": training_delta_text,
-                        },
-                        {
-                            "label": "新商品開発数",
-                            "value": format_number(
-                                selected_kpi_row.get("new_product_count"), digits=0, unit=" 件"
-                            ),
-                            "delta": new_product_delta_text,
-                        },
-                    ],
-                )
-
+            render_kgi_cards(selected_kpi_row, period_row, default_cash_forecast, starting_cash)
+            render_dashboard_meta(latest_label, range_label, total_records, alert_count)
+            render_status_banner(alerts)
             st.caption(f"対象期間: {period_start} 〜 {period_end}")
 
-        st.divider()
+            render_first_level_kpi_strip(kpi_period_summary, selected_kpi_row)
 
-        if not period_summary.empty:
-            st.markdown("### 売上と粗利の推移")
-            latest_periods = period_summary.tail(12).copy()
-            latest_periods["period_start"] = pd.to_datetime(latest_periods["period_start"])
-            sales_chart_source = latest_periods.rename(
-                columns={
-                    "period_start": "期間開始",
-                    "period_label": "期間",
-                    "sales_amount": "現状売上",
-                    "prev_year_sales": "前年同期間売上",
-                }
+            tab_labels = ["売上", "粗利", "在庫", "資金"]
+            sales_tab, gross_tab, inventory_tab, cash_tab = st.tabs(
+                [f"📈 {label}" for label in tab_labels]
             )
-            sales_value_columns = [
-                col for col in ["現状売上", "前年同期間売上"] if col in sales_chart_source.columns
-            ]
-            if sales_value_columns:
-                sales_chart = px.line(
-                    sales_chart_source.melt(
-                        id_vars=["期間開始", "期間"],
-                        value_vars=sales_value_columns,
-                        var_name="指標",
-                        value_name="金額",
-                    ),
-                    x="期間開始",
-                    y="金額",
-                    color="指標",
-                    markers=True,
-                    hover_data={"期間": True},
-                    color_discrete_sequence=[ACCENT_BLUE, SECONDARY_SLATE],
+            with sales_tab:
+                render_sales_tab(
+                    merged_df,
+                    period_summary,
+                    channel_share_df,
+                    category_share_df,
+                    selected_granularity_label,
                 )
-                sales_chart = apply_chart_theme(sales_chart)
-                sales_chart.update_layout(
-                    yaxis_title="円",
-                    xaxis_title=f"{selected_granularity_label}開始日",
-                    legend=dict(title="", itemclick="toggleothers", itemdoubleclick="toggle"),
-                )
-                st.plotly_chart(sales_chart, use_container_width=True)
+            with gross_tab:
+                render_gross_tab(merged_df, period_summary, selected_granularity_label)
+            with inventory_tab:
+                render_inventory_tab(merged_df, kpi_period_summary, selected_kpi_row)
+            with cash_tab:
+                render_cash_tab(default_cash_plan, default_cash_forecast, starting_cash)
 
-            gross_chart_source = latest_periods.rename(
-                columns={
-                    "period_start": "期間開始",
-                    "period_label": "期間",
-                    "net_gross_profit": "粗利",
-                }
+            render_data_status_section(
+                merged_df,
+                cost_df,
+                subscription_df,
+                use_sample_data=use_sample_data,
+                automated_sales_data=automated_sales_data,
             )
-            gross_chart = px.line(
-                gross_chart_source,
-                x="期間開始",
-                y="粗利",
-                markers=True,
-                hover_data={"期間": True},
-                color_discrete_sequence=[ACCENT_BLUE],
-            )
-            gross_chart = apply_chart_theme(gross_chart)
-            gross_chart.update_layout(
-                yaxis_title="円",
-                xaxis_title=f"{selected_granularity_label}開始日",
-                legend=dict(title=""),
-            )
-            st.plotly_chart(gross_chart, use_container_width=True)
-
-        st.divider()
-
-        st.markdown("### チャネルとカテゴリの構成")
-        chart_cols = st.columns(2)
-        if not channel_share_df.empty:
-            channel_chart = px.pie(
-                channel_share_df,
-                names="channel",
-                values="sales_amount",
-                title="チャネル別売上構成比",
-                color_discrete_sequence=PLOTLY_COLORWAY,
-            )
-            channel_chart = apply_chart_theme(channel_chart)
-            chart_cols[0].plotly_chart(channel_chart, use_container_width=True)
-        if not category_share_df.empty:
-            category_chart = px.pie(
-                category_share_df,
-                names="category",
-                values="sales_amount",
-                title="カテゴリ別売上構成比",
-                color_discrete_sequence=PLOTLY_COLORWAY,
-            )
-            category_chart = apply_chart_theme(category_chart)
-            chart_cols[1].plotly_chart(category_chart, use_container_width=True)
-
-        if not period_summary.empty:
             st.divider()
-            yoy_cols = st.columns(2)
-            latest_period_row = period_summary.iloc[-1]
-            yoy_cols[0].metric(
-                "前年同期比",
-                f"{latest_period_row['sales_yoy'] * 100:.2f}%"
-                if pd.notna(latest_period_row["sales_yoy"])
-                else "-",
-            )
-            yoy_cols[1].metric(
-                "前期比",
-                f"{latest_period_row['sales_mom'] * 100:.2f}%"
-                if pd.notna(latest_period_row["sales_mom"])
-                else "-",
-            )
 
     elif selected_section == "売上分析":
         st.subheader("売上分析")
