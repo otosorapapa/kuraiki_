@@ -167,6 +167,13 @@ EXPENSE_IMPORT_CANDIDATES: Dict[str, List[str]] = {
 }
 
 
+STATUS_PILL_DETAILS: Dict[str, Tuple[str, str]] = {
+    "ok": ("✅", "正常"),
+    "warning": ("⚠️", "警告"),
+    "error": ("⛔", "エラー"),
+}
+
+
 MAIN_NAV_STRUCTURE: List[Tuple[str, List[str]]] = [
     ("ホーム", ["ダッシュボード"]),
     ("分析", ["売上分析", "利益分析", "財務モニタリング"]),
@@ -189,7 +196,11 @@ SECONDARY_SLATE = "#5B6B82"
 SECONDARY_SKY = "#E6ECF4"
 NEUTRAL_STEEL = "#8FA5C9"
 ACCENT_BLUE = "#2A86FF"
+ACCENT_BLUE_STRONG = "#1E5CC3"
 ACCENT_ORANGE = "#FF7A45"
+ACCENT_ORANGE_STRONG = "#C24C1D"
+INK_INVERSE = "#F5F8FF"
+INK_MUTED = "#C7D3E7"
 MCKINSEY_FONT_STACK = (
     "'Noto Sans JP', 'Hiragino Sans', 'Segoe UI', 'Helvetica Neue', sans-serif"
 )
@@ -224,24 +235,62 @@ def inject_mckinsey_style() -> None:
             --color-primary: {PRIMARY_NAVY};
             --color-primary-alt: {PRIMARY_NAVY_ALT};
             --color-accent: {ACCENT_BLUE};
+            --color-accent-strong: {ACCENT_BLUE_STRONG};
             --color-alert: {ACCENT_ORANGE};
+            --color-alert-strong: {ACCENT_ORANGE_STRONG};
             --secondary-surface: {SECONDARY_SKY};
             --surface-elevated: #ffffff;
+            --surface-contrast: rgba(255, 255, 255, 0.08);
             --ink-base: #1A2433;
             --ink-strong: #0F1E2E;
             --ink-subtle: #5B6A82;
+            --ink-inverse: {INK_INVERSE};
+            --ink-muted: {INK_MUTED};
+            --focus-outline: rgba(42, 134, 255, 0.45);
         }}
 
         html, body {{
             font-family: {MCKINSEY_FONT_STACK};
-            color: var(--ink-base);
+            color: var(--ink-inverse);
             line-height: 1.45;
-            background-color: #f4f7fb;
+            background-color: var(--color-primary);
+            background-image: linear-gradient(180deg, #0B1F33 0%, #123A66 60%, #0B1F33 100%);
+            min-height: 100%;
+        }}
+
+        a {{
+            color: #B8D4FF;
+            font-weight: 600;
+            text-decoration: underline;
+        }}
+
+        a:hover {{
+            color: #E0ECFF;
+        }}
+
+        .surface-card a,
+        .form-section a,
+        .search-card a,
+        .stApp main div[data-testid="stDataFrame"] a {{
+            color: var(--color-accent-strong);
+        }}
+
+        .surface-card a:hover,
+        .form-section a:hover,
+        .search-card a:hover,
+        .stApp main div[data-testid="stDataFrame"] a:hover {{
+            color: #174A9C;
+        }}
+
+        a:focus {{
+            outline: 3px solid var(--focus-outline);
+            outline-offset: 2px;
         }}
 
         main .block-container {{
             max-width: 1220px;
             padding: 2.2rem 1.8rem 3rem;
+            color: var(--ink-inverse);
         }}
 
         .stAppViewContainer {{
@@ -249,8 +298,8 @@ def inject_mckinsey_style() -> None:
         }}
 
         .stApp {{
-            background: linear-gradient(180deg, #f7f9fc 0%, #eef2f7 100%);
-            color: var(--ink-base);
+            background: linear-gradient(180deg, rgba(11,31,51,0.98) 0%, rgba(18,58,102,0.94) 60%, rgba(230,236,244,0.35) 100%);
+            color: var(--ink-inverse);
             font-family: {MCKINSEY_FONT_STACK};
         }}
 
@@ -263,7 +312,7 @@ def inject_mckinsey_style() -> None:
             font-weight: 700;
             letter-spacing: 0.02em;
             line-height: 1.35;
-            color: var(--ink-strong);
+            color: var(--ink-inverse);
         }}
 
         h2 {{
@@ -274,22 +323,50 @@ def inject_mckinsey_style() -> None:
             margin-top: 1.5rem;
         }}
 
+        .surface-card h1,
+        .surface-card h2,
+        .surface-card h3,
+        .surface-card h4,
+        .form-section h1,
+        .form-section h2,
+        .form-section h3,
+        .form-section h4 {{
+            color: var(--ink-strong);
+        }}
+
+        .surface-card p,
+        .surface-card li,
+        .surface-card span,
+        .form-section p,
+        .form-section li,
+        .form-section span {{
+            color: var(--ink-base);
+        }}
+
         section[data-testid="stSidebar"] {{
             background: linear-gradient(180deg, var(--color-primary) 0%, var(--color-primary-alt) 100%);
-            color: #f3f6fa;
+            color: var(--ink-inverse);
         }}
 
         section[data-testid="stSidebar"] * {{
-            color: #f3f6fa;
+            color: var(--ink-inverse);
+        }}
+
+        section[data-testid="stSidebar"] a {{
+            color: #D0E2FF;
+        }}
+
+        section[data-testid="stSidebar"] a:hover {{
+            color: #FFFFFF;
         }}
 
         section[data-testid="stSidebar"] input,
         section[data-testid="stSidebar"] select,
         section[data-testid="stSidebar"] textarea {{
-            background: rgba(255,255,255,0.08);
+            background: rgba(255,255,255,0.15);
             border-radius: 0.6rem;
-            border: 1px solid rgba(255,255,255,0.2);
-            color: #f7fbff;
+            border: 1px solid rgba(255,255,255,0.35);
+            color: #ffffff;
         }}
 
         section[data-testid="stSidebar"] input::placeholder,
@@ -300,14 +377,14 @@ def inject_mckinsey_style() -> None:
         section[data-testid="stSidebar"] .stButton>button,
         section[data-testid="stSidebar"] .stDownloadButton>button {{
             border-radius: 0.6rem;
-            border: 1px solid rgba(255,255,255,0.35);
-            background: rgba(255,255,255,0.1);
-            color: #f3f6fa;
+            border: 1px solid rgba(255,255,255,0.45);
+            background: rgba(255,255,255,0.18);
+            color: #ffffff;
         }}
 
         .hero-panel {{
             background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-alt) 100%);
-            color: #f5f9ff;
+            color: var(--ink-inverse);
             padding: 2.2rem 2.6rem;
             border-radius: 1.25rem;
             margin-bottom: 1.5rem;
@@ -322,7 +399,7 @@ def inject_mckinsey_style() -> None:
         .hero-subtitle {{
             font-size: 1.05rem;
             max-width: 760px;
-            opacity: 0.92;
+            opacity: 0.96;
         }}
 
         .hero-meta {{
@@ -337,19 +414,21 @@ def inject_mckinsey_style() -> None:
             align-items: center;
             padding: 0.35rem 0.85rem;
             border-radius: 999px;
-            background: rgba(255,255,255,0.18);
+            background: rgba(255,255,255,0.2);
             font-size: 0.9rem;
             letter-spacing: 0.02em;
+            color: var(--ink-inverse);
+            gap: 0.4rem;
         }}
 
         .hero-badge--accent {{
-            background: var(--color-accent);
-            color: #ffffff;
+            background: var(--color-accent-strong);
+            color: var(--ink-inverse);
         }}
 
         .hero-badge--alert {{
-            background: var(--color-alert);
-            color: #ffffff;
+            background: var(--color-alert-strong);
+            color: var(--ink-inverse);
         }}
 
         .surface-card {{
@@ -357,25 +436,27 @@ def inject_mckinsey_style() -> None:
             border-radius: 1rem;
             padding: 1.6rem 1.8rem;
             box-shadow: 0 16px 42px rgba(15,30,46,0.08);
-            border: 1px solid rgba(11,31,51,0.08);
+            border: 1px solid rgba(11,31,51,0.12);
             margin-bottom: 1.8rem;
+            color: var(--ink-base);
         }}
 
         .form-section {{
             background: var(--surface-elevated);
             border-radius: 1rem;
             padding: 1.4rem 1.6rem;
-            border: 1px solid rgba(11,31,51,0.06);
+            border: 1px solid rgba(11,31,51,0.1);
             box-shadow: 0 12px 30px rgba(15,30,46,0.06);
             margin-bottom: 1.6rem;
             display: flex;
             flex-direction: column;
             gap: 1rem;
+            color: var(--ink-base);
         }}
 
         .form-section--secondary {{
-            background: var(--secondary-surface);
-            border-color: rgba(11,31,51,0.05);
+            background: rgba(230,236,244,0.95);
+            border-color: rgba(11,31,51,0.08);
             box-shadow: none;
         }}
 
@@ -396,11 +477,12 @@ def inject_mckinsey_style() -> None:
             align-items: center;
             padding: 0.2rem 0.65rem;
             border-radius: 999px;
-            background: rgba(42,134,255,0.15);
-            color: var(--color-accent);
+            background: rgba(30,92,195,0.15);
+            color: var(--color-accent-strong);
             font-size: 0.8rem;
             font-weight: 600;
             letter-spacing: 0.02em;
+            gap: 0.3rem;
         }}
 
         .stepper {{
@@ -415,18 +497,18 @@ def inject_mckinsey_style() -> None:
             gap: 1rem;
             padding: 0.85rem 1.1rem;
             border-radius: 0.95rem;
-            border: 1px solid rgba(11,31,51,0.1);
-            background: var(--secondary-surface);
+            border: 1px solid rgba(11,31,51,0.18);
+            background: rgba(230,236,244,0.9);
         }}
 
         .stepper__item--active {{
-            border-color: rgba(42,134,255,0.45);
-            background: rgba(42,134,255,0.12);
+            border-color: rgba(30,92,195,0.5);
+            background: rgba(30,92,195,0.16);
         }}
 
         .stepper__item--done {{
-            border-color: rgba(11,31,51,0.15);
-            background: rgba(11,31,51,0.04);
+            border-color: rgba(11,31,51,0.18);
+            background: rgba(11,31,51,0.06);
         }}
 
         .stepper__index {{
@@ -434,7 +516,7 @@ def inject_mckinsey_style() -> None:
             height: 2rem;
             border-radius: 999px;
             background: var(--color-primary);
-            color: #ffffff;
+            color: var(--ink-inverse);
             display: flex;
             align-items: center;
             justify-content: center;
@@ -443,7 +525,7 @@ def inject_mckinsey_style() -> None:
         }}
 
         .stepper__item--active .stepper__index {{
-            background: var(--color-accent);
+            background: var(--color-accent-strong);
         }}
 
         .stepper__body {{
@@ -473,29 +555,29 @@ def inject_mckinsey_style() -> None:
             border-radius: 0.85rem;
             padding: 0.75rem 1.4rem;
             font-weight: 600;
-            background: var(--color-accent);
-            border: none;
-            color: #ffffff;
+            background: var(--color-accent-strong);
+            border: 1px solid #123F7A;
+            color: var(--ink-inverse);
             min-height: 48px;
-            box-shadow: 0 12px 28px rgba(42,134,255,0.22);
+            box-shadow: 0 12px 28px rgba(30,92,195,0.25);
         }}
 
         .stApp main .stButton>button:hover,
         .stApp main .stDownloadButton>button:hover {{
-            background: #1f6ed6;
+            background: #174A9C;
         }}
 
         .stApp main .stButton>button:focus,
         .stApp main .stDownloadButton>button:focus {{
             outline: none;
-            box-shadow: 0 0 0 3px rgba(42,134,255,0.25);
+            box-shadow: 0 0 0 3px var(--focus-outline);
         }}
 
         .stApp main div[data-baseweb="input"] input,
         .stApp main div[data-baseweb="textarea"] textarea,
         .stApp main div[data-baseweb="select"] > div {{
             border-radius: 0.75rem;
-            border: 1px solid rgba(11,31,51,0.14);
+            border: 1px solid rgba(11,31,51,0.18);
             background: #ffffff;
             color: var(--ink-strong);
             min-height: 48px;
@@ -510,14 +592,14 @@ def inject_mckinsey_style() -> None:
         .stApp main div[data-baseweb="input"] input:focus,
         .stApp main div[data-baseweb="textarea"] textarea:focus,
         .stApp main div[data-baseweb="select"]:focus-within > div {{
-            border-color: var(--color-accent);
-            box-shadow: 0 0 0 3px rgba(42,134,255,0.18);
+            border-color: var(--color-accent-strong);
+            box-shadow: 0 0 0 3px rgba(30,92,195,0.25);
         }}
 
         .stApp main div[data-testid="stFileUploader"] section[data-testid="stFileUploaderDropzone"] {{
             border-radius: 0.9rem;
-            border: 1px dashed rgba(11,31,51,0.2);
-            background: rgba(230,236,244,0.35);
+            border: 1px dashed rgba(11,31,51,0.3);
+            background: rgba(230,236,244,0.45);
         }}
 
         .stApp main div[data-testid="stFileUploader"] section[data-testid="stFileUploaderDropzone"] * {{
@@ -526,14 +608,17 @@ def inject_mckinsey_style() -> None:
 
         .stApp main div[data-testid="stDataFrame"] > div {{
             border-radius: 0.85rem;
-            border: 1px solid rgba(11,31,51,0.08);
+            border: 1px solid rgba(11,31,51,0.12);
+            background: var(--surface-elevated);
+            color: var(--ink-base);
         }}
 
         .stApp main div[data-testid="stDataEditor"] {{
             border-radius: 0.85rem;
-            border: 1px solid rgba(11,31,51,0.08);
+            border: 1px solid rgba(11,31,51,0.12);
             padding: 0.5rem;
-            background: #ffffff;
+            background: var(--surface-elevated);
+            color: var(--ink-base);
         }}
 
         @media (max-width: 960px) {{
@@ -602,18 +687,18 @@ def inject_mckinsey_style() -> None:
         .main-nav-block div[role="radiogroup"] label {{
             border-radius: 999px;
             padding: 0.35rem 0.9rem;
-            border: 1px solid rgba(15,30,46,0.08);
-            background: var(--secondary-surface);
+            border: 1px solid rgba(15,30,46,0.16);
+            background: rgba(230,236,244,0.85);
             font-weight: 600;
             color: var(--ink-strong);
         }}
 
         .main-nav-block div[role="radiogroup"] label:hover {{
-            border-color: rgba(42,134,255,0.45);
+            border-color: rgba(30,92,195,0.45);
         }}
 
         .breadcrumb-trail {{
-            color: var(--ink-subtle);
+            color: var(--ink-muted);
             margin-bottom: 1.2rem;
             font-size: 0.9rem;
         }}
@@ -626,15 +711,15 @@ def inject_mckinsey_style() -> None:
         }}
 
         .alert-banner--warning {{
-            background: rgba(255,122,69,0.12);
-            border-color: rgba(255,122,69,0.4);
-            color: var(--color-alert);
+            background: #FFF3E9;
+            border-color: #F0B08A;
+            color: #9A3A0B;
         }}
 
         .alert-banner--ok {{
-            background: rgba(42,134,255,0.12);
-            border-color: rgba(42,134,255,0.35);
-            color: var(--color-accent);
+            background: #E3EDFF;
+            border-color: #9CB6F5;
+            color: #113E79;
         }}
 
         .alert-banner__title {{
@@ -663,14 +748,15 @@ def inject_mckinsey_style() -> None:
 
         .search-card input {{
             border-radius: 0.75rem;
-            border: 1px solid rgba(11,31,51,0.15);
+            border: 1px solid rgba(11,31,51,0.18);
             padding: 0.6rem 0.9rem;
             background: #ffffff;
+            color: var(--ink-strong);
         }}
 
         .search-card input:focus {{
-            border-color: var(--color-accent);
-            box-shadow: 0 0 0 2px rgba(42,134,255,0.2);
+            border-color: var(--color-accent-strong);
+            box-shadow: 0 0 0 2px rgba(30,92,195,0.22);
         }}
 
         hr {{
@@ -681,8 +767,9 @@ def inject_mckinsey_style() -> None:
             background: var(--surface-elevated);
             border-radius: 0.9rem;
             padding: 1.1rem;
-            border: 1px solid rgba(11,31,51,0.08);
+            border: 1px solid rgba(11,31,51,0.12);
             box-shadow: 0 12px 30px rgba(15,30,46,0.05);
+            color: var(--ink-base);
         }}
 
         div[data-testid="stMetricLabel"] {{
@@ -696,7 +783,7 @@ def inject_mckinsey_style() -> None:
         }}
 
         div[data-testid="stMetricDelta"] {{
-            color: var(--color-accent);
+            color: var(--color-accent-strong);
             font-weight: 600;
         }}
 
@@ -709,26 +796,27 @@ def inject_mckinsey_style() -> None:
             font-weight: 600;
             letter-spacing: 0.02em;
             margin-bottom: 0.35rem;
+            gap: 0.3rem;
         }}
 
         .status-pill--ok {{
-            background: rgba(42,134,255,0.28);
-            color: #e8f1ff;
+            background: #E0EDFF;
+            color: #113E79;
         }}
 
         .status-pill--warning {{
-            background: rgba(255,170,0,0.28);
-            color: #fff2d0;
+            background: #FFF4D7;
+            color: #7A4E00;
         }}
 
         .status-pill--error {{
-            background: rgba(255,122,69,0.28);
-            color: #ffe1d4;
+            background: #FFE3D6;
+            color: #7A1C00;
         }}
 
         section[data-testid="stSidebar"] .sidebar-meta {{
             font-size: 0.8rem;
-            opacity: 0.82;
+            opacity: 0.92;
             margin-bottom: 0.75rem;
         }}
 
@@ -739,6 +827,7 @@ def inject_mckinsey_style() -> None:
         """,
         unsafe_allow_html=True,
     )
+
 
 def load_data(
     use_sample: bool,
@@ -2295,10 +2384,10 @@ def render_hero_section(
     """ヒーローエリアをマッキンゼー風に表示する。"""
 
     if alert_count > 0:
-        status_text = f"要確認: {alert_count}件"
+        status_text = f"⚠️ 要確認: {alert_count}件"
         status_class = "hero-badge hero-badge--alert"
     else:
-        status_text = "主要指標は安定しています"
+        status_text = "✅ 主要指標は安定しています"
         status_class = "hero-badge hero-badge--accent"
 
     st.markdown(
@@ -2332,7 +2421,7 @@ def render_status_banner(alerts: Optional[List[str]]) -> None:
         st.markdown(
             f"""
             <div class="alert-banner alert-banner--warning">
-                <div class="alert-banner__title">警告が検知されました</div>
+                <div class="alert-banner__title">⚠️ 警告が検知されました</div>
                 <ul>{items}</ul>
             </div>
             """,
@@ -2342,7 +2431,7 @@ def render_status_banner(alerts: Optional[List[str]]) -> None:
         st.markdown(
             """
             <div class="alert-banner alert-banner--ok">
-                主要指標は設定した閾値内に収まっています。
+                <div class="alert-banner__title">✅ 主要指標は設定した閾値内に収まっています。</div>
             </div>
             """,
             unsafe_allow_html=True,
@@ -2378,71 +2467,74 @@ def render_global_search_results(query: str, merged_df: pd.DataFrame) -> None:
         return
 
     query_lower = query.lower()
-    st.markdown("### クイック検索結果")
+    with st.container():
+        st.markdown("<div class='surface-card search-results-card'>", unsafe_allow_html=True)
+        st.markdown("### クイック検索結果")
 
-    if merged_df is not None and not merged_df.empty:
-        searchable = merged_df.copy()
-        for column in ["product_name", "channel", "category"]:
-            if column in searchable.columns:
-                searchable[column] = searchable[column].astype(str)
-        fallback = pd.Series([False] * len(searchable), index=searchable.index)
-        product_series = (
-            searchable["product_name"].str.contains(query, case=False, na=False)
-            if "product_name" in searchable.columns
-            else fallback
-        )
-        channel_series = (
-            searchable["channel"].str.contains(query, case=False, na=False)
-            if "channel" in searchable.columns
-            else fallback
-        )
-        category_series = (
-            searchable["category"].str.contains(query, case=False, na=False)
-            if "category" in searchable.columns
-            else fallback
-        )
-        mask = product_series | channel_series | category_series
-        matched_sales = searchable[mask].copy()
-        if not matched_sales.empty and "order_date" in matched_sales.columns:
-            matched_sales.sort_values("order_date", ascending=False, inplace=True)
-        if not matched_sales.empty:
-            display_cols = []
-            if "order_date" in matched_sales.columns:
-                matched_sales["order_date"] = pd.to_datetime(matched_sales["order_date"])
-                matched_sales["order_date_str"] = matched_sales["order_date"].dt.strftime("%Y-%m-%d")
-                display_cols.append("order_date_str")
-            if "channel" in matched_sales.columns:
-                display_cols.append("channel")
-            if "product_name" in matched_sales.columns:
-                display_cols.append("product_name")
-            if "sales_amount" in matched_sales.columns:
-                display_cols.append("sales_amount")
-            summary_table = matched_sales.head(10)[display_cols].rename(
-                columns={
-                    "order_date_str": "受注日",
-                    "channel": "チャネル",
-                    "product_name": "商品名",
-                    "sales_amount": "売上高",
-                }
+        if merged_df is not None and not merged_df.empty:
+            searchable = merged_df.copy()
+            for column in ["product_name", "channel", "category"]:
+                if column in searchable.columns:
+                    searchable[column] = searchable[column].astype(str)
+            fallback = pd.Series([False] * len(searchable), index=searchable.index)
+            product_series = (
+                searchable["product_name"].str.contains(query, case=False, na=False)
+                if "product_name" in searchable.columns
+                else fallback
             )
-            if "売上高" in summary_table.columns:
-                summary_table["売上高"] = summary_table["売上高"].map(lambda v: f"{v:,.0f}")
-            st.dataframe(summary_table, hide_index=True, use_container_width=True)
+            channel_series = (
+                searchable["channel"].str.contains(query, case=False, na=False)
+                if "channel" in searchable.columns
+                else fallback
+            )
+            category_series = (
+                searchable["category"].str.contains(query, case=False, na=False)
+                if "category" in searchable.columns
+                else fallback
+            )
+            mask = product_series | channel_series | category_series
+            matched_sales = searchable[mask].copy()
+            if not matched_sales.empty and "order_date" in matched_sales.columns:
+                matched_sales.sort_values("order_date", ascending=False, inplace=True)
+            if not matched_sales.empty:
+                display_cols = []
+                if "order_date" in matched_sales.columns:
+                    matched_sales["order_date"] = pd.to_datetime(matched_sales["order_date"])
+                    matched_sales["order_date_str"] = matched_sales["order_date"].dt.strftime("%Y-%m-%d")
+                    display_cols.append("order_date_str")
+                if "channel" in matched_sales.columns:
+                    display_cols.append("channel")
+                if "product_name" in matched_sales.columns:
+                    display_cols.append("product_name")
+                if "sales_amount" in matched_sales.columns:
+                    display_cols.append("sales_amount")
+                summary_table = matched_sales.head(10)[display_cols].rename(
+                    columns={
+                        "order_date_str": "受注日",
+                        "channel": "チャネル",
+                        "product_name": "商品名",
+                        "sales_amount": "売上高",
+                    }
+                )
+                if "売上高" in summary_table.columns:
+                    summary_table["売上高"] = summary_table["売上高"].map(lambda v: f"{v:,.0f}")
+                st.dataframe(summary_table, hide_index=True, use_container_width=True)
+            else:
+                st.caption("売上データに一致する項目は見つかりませんでした。")
         else:
-            st.caption("売上データに一致する項目は見つかりませんでした。")
-    else:
-        st.caption("売上データが読み込まれていないため検索できません。")
+            st.caption("売上データが読み込まれていないため検索できません。")
 
-    matches = [
-        tutorial
-        for tutorial in TUTORIAL_INDEX
-        if query_lower in tutorial["title"].lower()
-        or any(query_lower in keyword.lower() for keyword in tutorial.get("keywords", []))
-    ]
-    if matches:
-        st.markdown("**関連チュートリアル**")
-        for tutorial in matches:
-            st.markdown(f"- [{tutorial['title']}]({tutorial['path']})")
+        matches = [
+            tutorial
+            for tutorial in TUTORIAL_INDEX
+            if query_lower in tutorial["title"].lower()
+            or any(query_lower in keyword.lower() for keyword in tutorial.get("keywords", []))
+        ]
+        if matches:
+            st.markdown("**関連チュートリアル**")
+            for tutorial in matches:
+                st.markdown(f"- [{tutorial['title']}]({tutorial['path']})")
+        st.markdown("</div>", unsafe_allow_html=True)
 
 def main() -> None:
     inject_mckinsey_style()
@@ -2520,15 +2612,13 @@ def main() -> None:
                 record_count = len(latest_df) if isinstance(latest_df, pd.DataFrame) else 0
                 if status_report and status_report.has_errors():
                     status_level = "error"
-                    status_label = "ERROR"
                 elif status_report and status_report.has_warnings():
                     status_level = "warning"
-                    status_label = "WARNING"
                 else:
                     status_level = "ok"
-                    status_label = "OK"
+                icon, status_label = STATUS_PILL_DETAILS.get(status_level, ("ℹ️", "情報"))
                 st.markdown(
-                    f"<div class='status-pill status-pill--{status_level}'>状態: {status_label}</div>",
+                    f"<div class='status-pill status-pill--{status_level}'>{icon} 状態: {status_label}</div>",
                     unsafe_allow_html=True,
                 )
                 st.markdown(
