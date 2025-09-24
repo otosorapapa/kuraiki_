@@ -5,6 +5,7 @@ from __future__ import annotations
 import html
 import hashlib
 import io
+from contextlib import contextmanager
 from datetime import date, datetime
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import parse_qsl
@@ -238,6 +239,15 @@ def inject_mckinsey_style() -> None:
             background-color: #f4f7fb;
         }}
 
+        main .block-container {{
+            max-width: 1220px;
+            padding: 2.2rem 1.8rem 3rem;
+        }}
+
+        .stAppViewContainer {{
+            padding-top: 0;
+        }}
+
         .stApp {{
             background: linear-gradient(180deg, #f7f9fc 0%, #eef2f7 100%);
             color: var(--ink-base);
@@ -345,9 +355,243 @@ def inject_mckinsey_style() -> None:
         .surface-card {{
             background: var(--surface-elevated);
             border-radius: 1rem;
-            padding: 1.4rem 1.6rem;
+            padding: 1.6rem 1.8rem;
             box-shadow: 0 16px 42px rgba(15,30,46,0.08);
+            border: 1px solid rgba(11,31,51,0.08);
+            margin-bottom: 1.8rem;
+        }}
+
+        .form-section {{
+            background: var(--surface-elevated);
+            border-radius: 1rem;
+            padding: 1.4rem 1.6rem;
+            border: 1px solid rgba(11,31,51,0.06);
+            box-shadow: 0 12px 30px rgba(15,30,46,0.06);
             margin-bottom: 1.6rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }}
+
+        .form-section--secondary {{
+            background: var(--secondary-surface);
+            border-color: rgba(11,31,51,0.05);
+            box-shadow: none;
+        }}
+
+        .form-section__title {{
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: var(--ink-strong);
+        }}
+
+        .form-section__description {{
+            font-size: 0.95rem;
+            color: var(--ink-subtle);
+            margin: 0;
+        }}
+
+        .form-section__status {{
+            display: inline-flex;
+            align-items: center;
+            padding: 0.2rem 0.65rem;
+            border-radius: 999px;
+            background: rgba(42,134,255,0.15);
+            color: var(--color-accent);
+            font-size: 0.8rem;
+            font-weight: 600;
+            letter-spacing: 0.02em;
+        }}
+
+        .stepper {{
+            display: grid;
+            gap: 0.75rem;
+            margin: 1.2rem 0 2rem;
+        }}
+
+        .stepper__item {{
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            padding: 0.85rem 1.1rem;
+            border-radius: 0.95rem;
+            border: 1px solid rgba(11,31,51,0.1);
+            background: var(--secondary-surface);
+        }}
+
+        .stepper__item--active {{
+            border-color: rgba(42,134,255,0.45);
+            background: rgba(42,134,255,0.12);
+        }}
+
+        .stepper__item--done {{
+            border-color: rgba(11,31,51,0.15);
+            background: rgba(11,31,51,0.04);
+        }}
+
+        .stepper__index {{
+            width: 2rem;
+            height: 2rem;
+            border-radius: 999px;
+            background: var(--color-primary);
+            color: #ffffff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 0.95rem;
+        }}
+
+        .stepper__item--active .stepper__index {{
+            background: var(--color-accent);
+        }}
+
+        .stepper__body {{
+            flex: 1;
+        }}
+
+        .stepper__title {{
+            font-size: 1rem;
+            font-weight: 700;
+            color: var(--ink-strong);
+        }}
+
+        .stepper__desc {{
+            font-size: 0.9rem;
+            color: var(--ink-subtle);
+            margin-top: 0.2rem;
+        }}
+
+        .stepper__status {{
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--ink-subtle);
+        }}
+
+        .stApp main .stButton>button,
+        .stApp main .stDownloadButton>button {{
+            border-radius: 0.85rem;
+            padding: 0.75rem 1.4rem;
+            font-weight: 600;
+            background: var(--color-accent);
+            border: none;
+            color: #ffffff;
+            min-height: 48px;
+            box-shadow: 0 12px 28px rgba(42,134,255,0.22);
+        }}
+
+        .stApp main .stButton>button:hover,
+        .stApp main .stDownloadButton>button:hover {{
+            background: #1f6ed6;
+        }}
+
+        .stApp main .stButton>button:focus,
+        .stApp main .stDownloadButton>button:focus {{
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(42,134,255,0.25);
+        }}
+
+        .stApp main div[data-baseweb="input"] input,
+        .stApp main div[data-baseweb="textarea"] textarea,
+        .stApp main div[data-baseweb="select"] > div {{
+            border-radius: 0.75rem;
+            border: 1px solid rgba(11,31,51,0.14);
+            background: #ffffff;
+            color: var(--ink-strong);
+            min-height: 48px;
+            padding: 0.5rem 0.85rem;
+            font-size: 0.95rem;
+        }}
+
+        .stApp main div[data-baseweb="textarea"] textarea {{
+            min-height: 120px;
+        }}
+
+        .stApp main div[data-baseweb="input"] input:focus,
+        .stApp main div[data-baseweb="textarea"] textarea:focus,
+        .stApp main div[data-baseweb="select"]:focus-within > div {{
+            border-color: var(--color-accent);
+            box-shadow: 0 0 0 3px rgba(42,134,255,0.18);
+        }}
+
+        .stApp main div[data-testid="stFileUploader"] section[data-testid="stFileUploaderDropzone"] {{
+            border-radius: 0.9rem;
+            border: 1px dashed rgba(11,31,51,0.2);
+            background: rgba(230,236,244,0.35);
+        }}
+
+        .stApp main div[data-testid="stFileUploader"] section[data-testid="stFileUploaderDropzone"] * {{
+            color: var(--ink-base);
+        }}
+
+        .stApp main div[data-testid="stDataFrame"] > div {{
+            border-radius: 0.85rem;
+            border: 1px solid rgba(11,31,51,0.08);
+        }}
+
+        .stApp main div[data-testid="stDataEditor"] {{
+            border-radius: 0.85rem;
+            border: 1px solid rgba(11,31,51,0.08);
+            padding: 0.5rem;
+            background: #ffffff;
+        }}
+
+        @media (max-width: 960px) {{
+            main .block-container {{
+                padding: 1.6rem 1.1rem 2.6rem;
+            }}
+
+            .hero-panel {{
+                padding: 1.8rem 1.6rem;
+            }}
+
+            .hero-meta {{
+                flex-direction: column;
+                align-items: flex-start;
+            }}
+
+            .main-nav-block div[role="radiogroup"] {{
+                flex-direction: column;
+                align-items: stretch;
+            }}
+
+            .main-nav-block div[role="radiogroup"] label {{
+                width: 100%;
+                text-align: center;
+            }}
+
+            div[data-testid="column"] {{
+                width: 100% !important;
+                padding-right: 0 !important;
+            }}
+
+            .stepper__item {{
+                flex-direction: column;
+                align-items: flex-start;
+            }}
+
+            .stepper__status {{
+                margin-top: 0.35rem;
+            }}
+        }}
+
+        @media (max-width: 600px) {{
+            .surface-card {{
+                padding: 1.2rem 1.3rem;
+            }}
+
+            .form-section {{
+                padding: 1.1rem 1.2rem;
+            }}
+
+            .hero-title {{
+                font-size: 1.6rem;
+            }}
+
+            .stApp main .stButton>button,
+            .stApp main .stDownloadButton>button {{
+                width: 100%;
+            }}
         }}
 
         .main-nav-block div[role="radiogroup"] {{
@@ -1049,6 +1293,80 @@ def render_instruction_popover(label: str, content: str) -> None:
             st.markdown(content)
 
 
+@contextmanager
+def form_section(
+    title: Optional[str],
+    description: Optional[str] = None,
+    *,
+    tone: str = "primary",
+) -> None:
+    """フォーム入力をカード化し、余白と階層を整える。"""
+
+    classes = ["form-section"]
+    if tone and tone != "primary":
+        classes.append(f"form-section--{tone}")
+
+    with st.container():
+        st.markdown(
+            f"<div class='{ ' '.join(classes) }'>", unsafe_allow_html=True
+        )
+        if title:
+            st.markdown(
+                f"<div class='form-section__title'>{html.escape(title)}</div>",
+                unsafe_allow_html=True,
+            )
+        if description:
+            st.markdown(
+                f"<p class='form-section__description'>{html.escape(description)}</p>",
+                unsafe_allow_html=True,
+            )
+        try:
+            yield
+        finally:
+            st.markdown("</div>", unsafe_allow_html=True)
+
+
+def render_plan_stepper(current_step: int) -> None:
+    """ウィザードの進行状況を視覚的なタイムラインで表示する。"""
+
+    items: List[str] = []
+    total_steps = len(PLAN_WIZARD_STEPS)
+    for idx, step in enumerate(PLAN_WIZARD_STEPS):
+        if idx < current_step:
+            state_class = "stepper__item stepper__item--done"
+            status = "完了"
+        elif idx == current_step:
+            state_class = "stepper__item stepper__item--active"
+            status = "進行中"
+        else:
+            state_class = "stepper__item"
+            status = "未着手"
+
+        items.append(
+            """
+            <div class="{state_class}">
+                <div class="stepper__index">{index}</div>
+                <div class="stepper__body">
+                    <div class="stepper__title">{title}</div>
+                    <div class="stepper__desc">{description}</div>
+                </div>
+                <div class="stepper__status">{status}</div>
+            </div>
+            """.format(
+                state_class=state_class,
+                index=idx + 1,
+                title=html.escape(step["title"]),
+                description=html.escape(step.get("description", "")),
+                status=status,
+            )
+        )
+
+    st.markdown(
+        f"<div class='stepper'>{''.join(items)}</div>",
+        unsafe_allow_html=True,
+    )
+
+
 def render_plan_step_basic_info(state: Dict[str, Any]) -> None:
     """ウィザードの基本情報入力ステップを描画する。"""
 
@@ -1062,58 +1380,75 @@ def render_plan_step_basic_info(state: Dict[str, Any]) -> None:
 """,
     )
 
-    col1, col2 = st.columns(2)
-    info["company_name"] = col1.text_input(
-        "事業所名",
-        value=info.get("company_name", ""),
-        key="plan_company_name",
-        help="経営計画書に記載する正式な社名または店舗名を入力してください。",
-    )
-    info["preparer"] = col2.text_input(
-        "作成担当者",
-        value=info.get("preparer", ""),
-        key="plan_preparer",
-        help="計画の作成者または責任者を入力すると共有がスムーズになります。",
-    )
+    with form_section(
+        "事業所と担当者",
+        "共有時に識別される基本情報を先に押さえておきます。",
+    ):
+        info["company_name"] = st.text_input(
+            "事業所名",
+            value=info.get("company_name", ""),
+            key="plan_company_name",
+            help="経営計画書に記載する正式な社名または店舗名を入力してください。",
+        )
+        info["preparer"] = st.text_input(
+            "作成担当者",
+            value=info.get("preparer", ""),
+            key="plan_preparer",
+            help="計画の作成者または責任者を入力すると共有がスムーズになります。",
+        )
 
-    default_start = info.get("fiscal_year_start")
-    if not isinstance(default_start, date):
-        default_start = date.today().replace(day=1)
-    info["fiscal_year_start"] = col1.date_input(
-        "計画開始月",
-        value=default_start,
-        key="plan_fiscal_start",
-        help="事業計画の初月を選択します。月次予測の起点として使用されます。",
-    )
+    with form_section(
+        "計画期間と利益目標",
+        "期間と目標値は後続のシミュレーションに自動反映されます。",
+    ):
+        col1, col2 = st.columns(2)
+        default_start = info.get("fiscal_year_start")
+        if not isinstance(default_start, date):
+            default_start = date.today().replace(day=1)
+        info["fiscal_year_start"] = col1.date_input(
+            "計画開始月",
+            value=default_start,
+            key="plan_fiscal_start",
+            help="事業計画の初月を選択します。月次予測の起点として使用されます。",
+        )
 
-    period_default = int(info.get("plan_period_months") or 12)
-    info["plan_period_months"] = col2.slider(
-        "計画期間（月）",
-        min_value=3,
-        max_value=36,
-        value=period_default,
-        step=1,
-        key="plan_period_months",
-        help="3〜36ヶ月の範囲で計画期間を指定します。",
-    )
+        period_default = int(info.get("plan_period_months") or 12)
+        info["plan_period_months"] = col2.slider(
+            "計画期間（月）",
+            min_value=3,
+            max_value=36,
+            value=period_default,
+            step=1,
+            key="plan_period_months",
+            help="3〜36ヶ月の範囲で計画期間を指定します。",
+        )
 
-    target_margin_default = float(info.get("target_margin") or 15.0)
-    info["target_margin"] = col1.slider(
-        "目標営業利益率(%)",
-        min_value=0.0,
-        max_value=50.0,
-        value=target_margin_default,
-        step=0.5,
-        key="plan_target_margin",
-        help="経営チームが目指す営業利益率を設定します。",
-    )
+        target_margin_default = float(info.get("target_margin") or 15.0)
+        info["target_margin"] = col1.slider(
+            "目標営業利益率(%)",
+            min_value=0.0,
+            max_value=50.0,
+            value=target_margin_default,
+            step=0.5,
+            key="plan_target_margin",
+            help="経営チームが目指す営業利益率を設定します。",
+        )
 
-    info["strategic_focus"] = st.text_area(
+    with form_section(
         "重点施策メモ",
-        value=info.get("strategic_focus", ""),
-        key="plan_strategic_focus",
-        help="成長戦略や重点施策をメモできます。後続ステップの指標と合わせて検討してください。",
-    )
+        "将来の振り返りで意図を再確認できるよう、戦略メモを残せます。",
+        tone="secondary",
+    ):
+        st.markdown(
+            "<span class='form-section__status'>任意入力</span>",
+            unsafe_allow_html=True,
+        )
+        info["strategic_focus"] = st.text_area(
+            "重点施策メモ",
+            value=info.get("strategic_focus", ""),
+            key="plan_strategic_focus",
+            help="成長戦略や重点施策をメモできます。後続ステップの指標と合わせて検討してください。",
+        )
 
     st.caption(
         "段階的なウィザードと統一されたツールチップを用いたインターフェースは、Nielsen Norman Groupの調査 (moldstud.com) によればユーザー満足度を約20%向上させます。"
@@ -1136,137 +1471,152 @@ def render_plan_step_sales(state: Dict[str, Any], context: Dict[str, Any]) -> No
 """,
     )
 
-    uploaded = st.file_uploader(
-        "会計ソフトの売上CSVを取り込む",
-        type=["csv"],
-        key="plan_sales_upload",
-        help="勘定奉行やfreeeなどの会計ソフトから出力したCSVをアップロードすると自動でマッピングされます。",
-    )
-    if uploaded is not None:
-        file_bytes = uploaded.getvalue()
-        file_hash = hashlib.md5(file_bytes).hexdigest()
-        if file_hash and state.get("sales_import_hash") != file_hash:
-            imported_df, error = import_plan_csv(
-                file_bytes,
-                SALES_IMPORT_CANDIDATES,
-                ["項目", "月次売上"],
-                ["月次売上"],
-            )
-            if error:
-                state["sales_import_feedback"] = ("error", error)
-            else:
+    with form_section(
+        "売上データの取り込み",
+        "CSVやAPI連携からエクスポートしたデータを一括で整形します。",
+    ):
+        uploaded = st.file_uploader(
+            "会計ソフトの売上CSVを取り込む",
+            type=["csv"],
+            key="plan_sales_upload",
+            help="勘定奉行やfreeeなどの会計ソフトから出力したCSVをアップロードすると自動でマッピングされます。",
+        )
+        if uploaded is not None:
+            file_bytes = uploaded.getvalue()
+            file_hash = hashlib.md5(file_bytes).hexdigest()
+            if file_hash and state.get("sales_import_hash") != file_hash:
+                imported_df, error = import_plan_csv(
+                    file_bytes,
+                    SALES_IMPORT_CANDIDATES,
+                    ["項目", "月次売上"],
+                    ["月次売上"],
+                )
+                if error:
+                    state["sales_import_feedback"] = ("error", error)
+                else:
+                    state["sales_table"] = prepare_plan_table(
+                        imported_df, SALES_PLAN_COLUMNS, ["月次売上"]
+                    )
+                    state["sales_import_feedback"] = (
+                        "success",
+                        f"CSVから{len(state['sales_table'])}件の売上科目を読み込みました。",
+                    )
+                state["sales_import_hash"] = file_hash
+
+        feedback = state.get("sales_import_feedback")
+        if feedback:
+            level, message = feedback
+            if level == "error":
+                st.error(message)
+            elif level == "success":
+                st.success(message)
+
+    with form_section(
+        "テンプレートと科目の追加",
+        "よく使うチャネル構成を呼び出し、入力の手戻りを防ぎます。",
+        tone="secondary",
+    ):
+        template_cols = st.columns([3, 1])
+        template_options = ["テンプレートを選択"] + list(SALES_PLAN_TEMPLATES.keys())
+        selected_template = template_cols[0].selectbox(
+            "売上テンプレートを適用",
+            options=template_options,
+            key="plan_sales_template",
+            help="売上の典型的な構成をテンプレートとして呼び出せます。",
+        )
+        if template_cols[1].button("読み込む", key="plan_apply_sales_template"):
+            if selected_template != "テンプレートを選択":
+                template_df = pd.DataFrame(SALES_PLAN_TEMPLATES[selected_template])
                 state["sales_table"] = prepare_plan_table(
-                    imported_df, SALES_PLAN_COLUMNS, ["月次売上"]
+                    template_df, SALES_PLAN_COLUMNS, ["月次売上"]
                 )
                 state["sales_import_feedback"] = (
                     "success",
-                    f"CSVから{len(state['sales_table'])}件の売上科目を読み込みました。",
+                    f"テンプレート『{selected_template}』を適用しました。",
                 )
-            state["sales_import_hash"] = file_hash
 
-    feedback = state.get("sales_import_feedback")
-    if feedback:
-        level, message = feedback
-        if level == "error":
-            st.error(message)
-        elif level == "success":
-            st.success(message)
-
-    template_cols = st.columns([3, 1])
-    template_options = ["テンプレートを選択"] + list(SALES_PLAN_TEMPLATES.keys())
-    selected_template = template_cols[0].selectbox(
-        "売上テンプレートを適用",
-        options=template_options,
-        key="plan_sales_template",
-        help="売上の典型的な構成をテンプレートとして呼び出せます。",
-    )
-    if template_cols[1].button("読み込む", key="plan_apply_sales_template"):
-        if selected_template != "テンプレートを選択":
-            template_df = pd.DataFrame(SALES_PLAN_TEMPLATES[selected_template])
-            state["sales_table"] = prepare_plan_table(
-                template_df, SALES_PLAN_COLUMNS, ["月次売上"]
+        common_candidates = list(
+            dict.fromkeys(COMMON_SALES_ITEMS + context.get("category_options", []))
+        )
+        selected_common = st.multiselect(
+            "よく使う売上科目を追加",
+            options=common_candidates,
+            key="plan_sales_common_select",
+            help="複数選択すると、0円の行として追加され数値だけ入力すれば完了です。",
+        )
+        if st.button("選択した科目を追加", key="plan_add_sales_common"):
+            state["sales_table"], added = append_plan_rows(
+                state["sales_table"],
+                "項目",
+                "月次売上",
+                {"チャネル": ""},
+                selected_common,
             )
-            state["sales_import_feedback"] = (
-                "success",
-                f"テンプレート『{selected_template}』を適用しました。",
-            )
+            if added:
+                st.success(f"{added}件の売上科目を追加しました。")
+            else:
+                st.info("新しく追加できる科目がありませんでした。")
+            st.session_state["plan_sales_common_select"] = []
 
-    common_candidates = list(
-        dict.fromkeys(COMMON_SALES_ITEMS + context.get("category_options", []))
-    )
-    selected_common = st.multiselect(
-        "よく使う売上科目を追加",
-        options=common_candidates,
-        key="plan_sales_common_select",
-        help="頻出する売上科目をプルダウンから追加できます。",
-    )
-    if st.button("選択した科目を追加", key="plan_add_sales_common"):
-        state["sales_table"], added = append_plan_rows(
+    with form_section(
+        "売上計画の編集",
+        "取り込んだ行はここで月次金額とチャネルを整えます。",
+    ):
+        channel_options = list(
+            dict.fromkeys(context.get("channel_options", PLAN_CHANNEL_OPTIONS_BASE))
+        )
+        channel_select_options = [""] + channel_options
+        column_module = getattr(st, "column_config", None)
+        column_config = {}
+        if column_module:
+            column_config["項目"] = column_module.TextColumn(
+                "項目",
+                help="売上項目の名称を入力します。",
+            )
+            column_config["月次売上"] = column_module.NumberColumn(
+                "月次売上 (円)",
+                min_value=0.0,
+                step=50_000.0,
+                help="各項目の月次売上計画を入力します。",
+            )
+            if hasattr(column_module, "SelectboxColumn"):
+                column_config["チャネル"] = column_module.SelectboxColumn(
+                    "チャネル/メモ",
+                    options=channel_select_options,
+                    help="主要チャネルやメモを選択・入力します。",
+                )
+            else:
+                column_config["チャネル"] = column_module.TextColumn(
+                    "チャネル/メモ",
+                    help="主要チャネルやメモを入力します。",
+                )
+        else:
+            column_config = None
+
+        editor_kwargs: Dict[str, Any] = {
+            "num_rows": "dynamic",
+            "use_container_width": True,
+            "hide_index": True,
+        }
+        if column_config:
+            editor_kwargs["column_config"] = column_config
+
+        sales_editor_value = st.data_editor(
             state["sales_table"],
-            "項目",
-            "月次売上",
-            {"チャネル": ""},
-            selected_common,
+            key="plan_sales_editor",
+            **editor_kwargs,
         )
-        if added:
-            st.success(f"{added}件の売上科目を追加しました。")
-        else:
-            st.info("新しく追加できる科目がありませんでした。")
-        st.session_state["plan_sales_common_select"] = []
-
-    channel_options = list(dict.fromkeys(context.get("channel_options", PLAN_CHANNEL_OPTIONS_BASE)))
-    channel_select_options = [""] + channel_options
-    column_module = getattr(st, "column_config", None)
-    column_config = {}
-    if column_module:
-        column_config["項目"] = column_module.TextColumn(
-            "項目",
-            help="売上項目の名称を入力します。",
+        state["sales_table"] = prepare_plan_table(
+            sales_editor_value, SALES_PLAN_COLUMNS, ["月次売上"]
         )
-        column_config["月次売上"] = column_module.NumberColumn(
-            "月次売上 (円)",
-            min_value=0.0,
-            step=50_000.0,
-            help="各項目の月次売上計画を入力します。",
+
+        monthly_total = (
+            float(state["sales_table"]["月次売上"].sum())
+            if not state["sales_table"].empty
+            else 0.0
         )
-        if hasattr(column_module, "SelectboxColumn"):
-            column_config["チャネル"] = column_module.SelectboxColumn(
-                "チャネル/メモ",
-                options=channel_select_options,
-                help="主要チャネルやメモを選択・入力します。",
-            )
-        else:
-            column_config["チャネル"] = column_module.TextColumn(
-                "チャネル/メモ",
-                help="主要チャネルやメモを入力します。",
-            )
-    else:
-        column_config = None
-
-    editor_kwargs: Dict[str, Any] = {
-        "num_rows": "dynamic",
-        "use_container_width": True,
-        "hide_index": True,
-    }
-    if column_config:
-        editor_kwargs["column_config"] = column_config
-
-    sales_editor_value = st.data_editor(
-        state["sales_table"],
-        key="plan_sales_editor",
-        **editor_kwargs,
-    )
-    state["sales_table"] = prepare_plan_table(
-        sales_editor_value, SALES_PLAN_COLUMNS, ["月次売上"]
-    )
-
-    monthly_total = (
-        float(state["sales_table"]["月次売上"].sum())
-        if not state["sales_table"].empty
-        else 0.0
-    )
-    st.metric("月次売上計画合計", f"{monthly_total:,.0f} 円")
-    st.caption("CSV取り込みとテンプレートで手入力を軽減し、小規模企業でも負荷を抑えられます。")
+        st.metric("月次売上計画合計", f"{monthly_total:,.0f} 円")
+        st.caption("CSV取り込みとテンプレートで手入力を軽減し、小規模企業でも負荷を抑えられます。")
 
 
 def render_plan_step_expenses(state: Dict[str, Any], context: Dict[str, Any]) -> None:
@@ -1285,132 +1635,145 @@ def render_plan_step_expenses(state: Dict[str, Any], context: Dict[str, Any]) ->
 """,
     )
 
-    uploaded = st.file_uploader(
-        "会計ソフトの経費CSVを取り込む",
-        type=["csv"],
-        key="plan_expense_upload",
-        help="freeeや弥生会計などから出力した経費CSVをアップロードすると自動でマッピングします。",
-    )
-    if uploaded is not None:
-        file_bytes = uploaded.getvalue()
-        file_hash = hashlib.md5(file_bytes).hexdigest()
-        if file_hash and state.get("expense_import_hash") != file_hash:
-            imported_df, error = import_plan_csv(
-                file_bytes,
-                EXPENSE_IMPORT_CANDIDATES,
-                ["費目", "月次金額"],
-                ["月次金額"],
-            )
-            if error:
-                state["expense_import_feedback"] = ("error", error)
-            else:
+    with form_section(
+        "経費データの取り込み",
+        "支出CSVを読み込むと費目と金額を自動整形します。",
+    ):
+        uploaded = st.file_uploader(
+            "会計ソフトの経費CSVを取り込む",
+            type=["csv"],
+            key="plan_expense_upload",
+            help="freeeや弥生会計などから出力した経費CSVをアップロードすると自動でマッピングします。",
+        )
+        if uploaded is not None:
+            file_bytes = uploaded.getvalue()
+            file_hash = hashlib.md5(file_bytes).hexdigest()
+            if file_hash and state.get("expense_import_hash") != file_hash:
+                imported_df, error = import_plan_csv(
+                    file_bytes,
+                    EXPENSE_IMPORT_CANDIDATES,
+                    ["費目", "月次金額"],
+                    ["月次金額"],
+                )
+                if error:
+                    state["expense_import_feedback"] = ("error", error)
+                else:
+                    state["expense_table"] = prepare_plan_table(
+                        imported_df, EXPENSE_PLAN_COLUMNS, ["月次金額"]
+                    )
+                    state["expense_import_feedback"] = (
+                        "success",
+                        f"CSVから{len(state['expense_table'])}件の経費科目を読み込みました。",
+                    )
+                state["expense_import_hash"] = file_hash
+
+        feedback = state.get("expense_import_feedback")
+        if feedback:
+            level, message = feedback
+            if level == "error":
+                st.error(message)
+            elif level == "success":
+                st.success(message)
+
+    with form_section(
+        "テンプレートと費目の追加",
+        "固定費・変動費のひな形を呼び出し、抜け漏れを防ぎます。",
+        tone="secondary",
+    ):
+        template_cols = st.columns([3, 1])
+        template_options = ["テンプレートを選択"] + list(EXPENSE_PLAN_TEMPLATES.keys())
+        selected_template = template_cols[0].selectbox(
+            "経費テンプレートを適用",
+            options=template_options,
+            key="plan_expense_template",
+            help="固定費・変動費の代表的な構成をテンプレートから読み込めます。",
+        )
+        if template_cols[1].button("読み込む", key="plan_apply_expense_template"):
+            if selected_template != "テンプレートを選択":
+                template_df = pd.DataFrame(EXPENSE_PLAN_TEMPLATES[selected_template])
                 state["expense_table"] = prepare_plan_table(
-                    imported_df, EXPENSE_PLAN_COLUMNS, ["月次金額"]
+                    template_df, EXPENSE_PLAN_COLUMNS, ["月次金額"]
                 )
                 state["expense_import_feedback"] = (
                     "success",
-                    f"CSVから{len(state['expense_table'])}件の経費科目を読み込みました。",
+                    f"テンプレート『{selected_template}』を適用しました。",
                 )
-            state["expense_import_hash"] = file_hash
 
-    feedback = state.get("expense_import_feedback")
-    if feedback:
-        level, message = feedback
-        if level == "error":
-            st.error(message)
-        elif level == "success":
-            st.success(message)
-
-    template_cols = st.columns([3, 1])
-    template_options = ["テンプレートを選択"] + list(EXPENSE_PLAN_TEMPLATES.keys())
-    selected_template = template_cols[0].selectbox(
-        "経費テンプレートを適用",
-        options=template_options,
-        key="plan_expense_template",
-        help="固定費・変動費の代表的な構成をテンプレートから読み込めます。",
-    )
-    if template_cols[1].button("読み込む", key="plan_apply_expense_template"):
-        if selected_template != "テンプレートを選択":
-            template_df = pd.DataFrame(EXPENSE_PLAN_TEMPLATES[selected_template])
-            state["expense_table"] = prepare_plan_table(
-                template_df, EXPENSE_PLAN_COLUMNS, ["月次金額"]
+        selected_common = st.multiselect(
+            "よく使う経費科目を追加",
+            options=COMMON_EXPENSE_ITEMS,
+            key="plan_expense_common_select",
+            help="複数選択で0円の行を追加し、金額だけ入力できるようにします。",
+        )
+        if st.button("選択した費目を追加", key="plan_add_expense_common"):
+            state["expense_table"], added = append_plan_rows(
+                state["expense_table"],
+                "費目",
+                "月次金額",
+                {"区分": "固定費"},
+                selected_common,
             )
-            state["expense_import_feedback"] = (
-                "success",
-                f"テンプレート『{selected_template}』を適用しました。",
-            )
+            if added:
+                st.success(f"{added}件の経費科目を追加しました。")
+            else:
+                st.info("新しく追加できる科目がありませんでした。")
+            st.session_state["plan_expense_common_select"] = []
 
-    selected_common = st.multiselect(
-        "よく使う経費科目を追加",
-        options=COMMON_EXPENSE_ITEMS,
-        key="plan_expense_common_select",
-        help="頻出する経費科目をプルダウンから追加できます。",
-    )
-    if st.button("選択した費目を追加", key="plan_add_expense_common"):
-        state["expense_table"], added = append_plan_rows(
+    with form_section(
+        "経費計画の編集",
+        "費目ごとの月次金額と区分を整えます。",
+    ):
+        column_module = getattr(st, "column_config", None)
+        column_config = {}
+        if column_module:
+            column_config["費目"] = column_module.TextColumn(
+                "費目",
+                help="経費の科目名を入力します。",
+            )
+            column_config["月次金額"] = column_module.NumberColumn(
+                "月次金額 (円)",
+                min_value=0.0,
+                step=20_000.0,
+                help="各費目の月次金額を入力します。",
+            )
+            if hasattr(column_module, "SelectboxColumn"):
+                column_config["区分"] = column_module.SelectboxColumn(
+                    "区分",
+                    options=PLAN_EXPENSE_CLASSIFICATIONS,
+                    help="固定費/変動費/投資などの区分を選択します。",
+                )
+            else:
+                column_config["区分"] = column_module.TextColumn(
+                    "区分",
+                    help="固定費や変動費などの区分を入力します。",
+                )
+        else:
+            column_config = None
+
+        editor_kwargs: Dict[str, Any] = {
+            "num_rows": "dynamic",
+            "use_container_width": True,
+            "hide_index": True,
+        }
+        if column_config:
+            editor_kwargs["column_config"] = column_config
+
+        expense_editor_value = st.data_editor(
             state["expense_table"],
-            "費目",
-            "月次金額",
-            {"区分": "固定費"},
-            selected_common,
+            key="plan_expense_editor",
+            **editor_kwargs,
         )
-        if added:
-            st.success(f"{added}件の経費科目を追加しました。")
-        else:
-            st.info("新しく追加できる科目がありませんでした。")
-        st.session_state["plan_expense_common_select"] = []
-
-    column_module = getattr(st, "column_config", None)
-    column_config = {}
-    if column_module:
-        column_config["費目"] = column_module.TextColumn(
-            "費目",
-            help="経費の科目名を入力します。",
+        state["expense_table"] = prepare_plan_table(
+            expense_editor_value, EXPENSE_PLAN_COLUMNS, ["月次金額"]
         )
-        column_config["月次金額"] = column_module.NumberColumn(
-            "月次金額 (円)",
-            min_value=0.0,
-            step=20_000.0,
-            help="各費目の月次金額を入力します。",
+
+        monthly_total = (
+            float(state["expense_table"]["月次金額"].sum())
+            if not state["expense_table"].empty
+            else 0.0
         )
-        if hasattr(column_module, "SelectboxColumn"):
-            column_config["区分"] = column_module.SelectboxColumn(
-                "区分",
-                options=PLAN_EXPENSE_CLASSIFICATIONS,
-                help="固定費/変動費/投資などの区分を選択します。",
-            )
-        else:
-            column_config["区分"] = column_module.TextColumn(
-                "区分",
-                help="固定費や変動費などの区分を入力します。",
-            )
-    else:
-        column_config = None
-
-    editor_kwargs: Dict[str, Any] = {
-        "num_rows": "dynamic",
-        "use_container_width": True,
-        "hide_index": True,
-    }
-    if column_config:
-        editor_kwargs["column_config"] = column_config
-
-    expense_editor_value = st.data_editor(
-        state["expense_table"],
-        key="plan_expense_editor",
-        **editor_kwargs,
-    )
-    state["expense_table"] = prepare_plan_table(
-        expense_editor_value, EXPENSE_PLAN_COLUMNS, ["月次金額"]
-    )
-
-    monthly_total = (
-        float(state["expense_table"]["月次金額"].sum())
-        if not state["expense_table"].empty
-        else 0.0
-    )
-    st.metric("月次経費計画合計", f"{monthly_total:,.0f} 円")
-    st.caption("テンプレートと自動補完で経費入力も数クリックで完了します。")
+        st.metric("月次経費計画合計", f"{monthly_total:,.0f} 円")
+        st.caption("テンプレートと自動補完で経費入力も数クリックで完了します。")
 
 
 def render_plan_step_metrics(state: Dict[str, Any], context: Dict[str, Any]) -> None:
@@ -1439,30 +1802,46 @@ def render_plan_step_metrics(state: Dict[str, Any], context: Dict[str, Any]) -> 
     if metrics.get("target_margin_pct") is not None and np.isfinite(metrics.get("margin_gap_pct")):
         margin_delta = f"{metrics['margin_gap_pct']:.1f} pt vs 目標"
 
-    col1, col2, col3 = st.columns(3)
-    col1.metric("月次売上計画", f"{metrics['monthly_sales']:,.0f} 円", delta=monthly_sales_delta)
-    col2.metric("月次営業利益", f"{metrics['monthly_profit']:,.0f} 円", delta=monthly_profit_delta)
-    col3.metric("営業利益率", margin_display, delta=margin_delta)
+    with form_section(
+        "主要指標とアラート",
+        "過去平均と比較して計画値の妥当性を確認します。",
+    ):
+        col1, col2, col3 = st.columns(3)
+        col1.metric(
+            "月次売上計画",
+            f"{metrics['monthly_sales']:,.0f} 円",
+            delta=monthly_sales_delta,
+        )
+        col2.metric(
+            "月次営業利益",
+            f"{metrics['monthly_profit']:,.0f} 円",
+            delta=monthly_profit_delta,
+        )
+        col3.metric("営業利益率", margin_display, delta=margin_delta)
 
-    if metrics.get("monthly_profit", 0.0) < 0:
-        st.error("月次営業利益がマイナスです。コスト配分や売上計画を見直してください。")
-    elif metrics.get("monthly_profit", 0.0) == 0:
-        st.warning("月次営業利益が0円です。余裕を持たせるために売上・経費を再検討しましょう。")
+        if metrics.get("monthly_profit", 0.0) < 0:
+            st.error("月次営業利益がマイナスです。コスト配分や売上計画を見直してください。")
+        elif metrics.get("monthly_profit", 0.0) == 0:
+            st.warning("月次営業利益が0円です。余裕を持たせるために売上・経費を再検討しましょう。")
 
     summary_df = build_plan_summary_df(metrics)
-    formatters: Dict[str, str] = {}
-    if "月次計画額" in summary_df.columns:
-        formatters["月次計画額"] = "{:,.0f}"
-    if "年間計画額" in summary_df.columns:
-        formatters["年間計画額"] = "{:,.0f}"
-    if "指標値" in summary_df.columns:
-        formatters["指標値"] = "{:,.1f}"
-    st.dataframe(summary_df.style.format(formatters), use_container_width=True)
+    with form_section(
+        "計画サマリー表",
+        "月次・年間の計画額を一覧で確認し、そのままCSVに出力できます。",
+    ):
+        formatters: Dict[str, str] = {}
+        if "月次計画額" in summary_df.columns:
+            formatters["月次計画額"] = "{:,.0f}"
+        if "年間計画額" in summary_df.columns:
+            formatters["年間計画額"] = "{:,.0f}"
+        if "指標値" in summary_df.columns:
+            formatters["指標値"] = "{:,.1f}"
+        st.dataframe(summary_df.style.format(formatters), use_container_width=True)
 
-    if actual_reference.get("margin_avg") is not None:
-        st.caption(
-            f"参考: 過去平均の営業利益率は{actual_reference['margin_avg'] * 100:.1f}%です。"
-        )
+        if actual_reference.get("margin_avg") is not None:
+            st.caption(
+                f"参考: 過去平均の営業利益率は{actual_reference['margin_avg'] * 100:.1f}%です。"
+            )
 
 
 def render_plan_step_review(state: Dict[str, Any], context: Dict[str, Any]) -> None:
@@ -1472,58 +1851,76 @@ def render_plan_step_review(state: Dict[str, Any], context: Dict[str, Any]) -> N
     info = state.get("basic_info", {})
 
     st.success("入力内容を確認し、必要に応じて修正してください。")
-    st.markdown(
-        f"**事業所名**: {info.get('company_name') or '-'} / **担当者**: {info.get('preparer') or '-'} / "
-        f"**計画開始月**: {info.get('fiscal_year_start')} / **期間**: {info.get('plan_period_months')}ヶ月"
-    )
 
-    st.markdown("#### 売上予測一覧")
-    if state["sales_table"].empty:
-        st.info("売上予測が未入力です。前のステップで追加してください。")
-    else:
-        st.dataframe(
-            state["sales_table"].style.format({"月次売上": "{:,.0f}"}),
-            use_container_width=True,
+    with form_section(
+        "基本情報サマリー",
+        "共有前に必須項目を再確認します。",
+    ):
+        st.markdown(
+            "<span class='form-section__status'>入力完了</span>",
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            f"**事業所名**: {info.get('company_name') or '-'} / **担当者**: {info.get('preparer') or '-'} / "
+            f"**計画開始月**: {info.get('fiscal_year_start')} / **期間**: {info.get('plan_period_months')}ヶ月"
         )
 
-    st.markdown("#### 経費計画一覧")
-    if state["expense_table"].empty:
-        st.info("経費計画が未入力です。前のステップで追加してください。")
-    else:
-        st.dataframe(
-            state["expense_table"].style.format({"月次金額": "{:,.0f}"}),
-            use_container_width=True,
+    with form_section(
+        "売上予測一覧",
+        "CSVエクスポート前に最新の売上予測を確認します。",
+    ):
+        if state["sales_table"].empty:
+            st.info("売上予測が未入力です。前のステップで追加してください。")
+        else:
+            st.dataframe(
+                state["sales_table"].style.format({"月次売上": "{:,.0f}"}),
+                use_container_width=True,
+            )
+
+    with form_section(
+        "経費計画一覧",
+        "費目別の月次コストを確認し、共有前の抜け漏れを防ぎます。",
+    ):
+        if state["expense_table"].empty:
+            st.info("経費計画が未入力です。前のステップで追加してください。")
+        else:
+            st.dataframe(
+                state["expense_table"].style.format({"月次金額": "{:,.0f}"}),
+                use_container_width=True,
+            )
+
+    with form_section(
+        "財務指標サマリー",
+        "年間換算を含む主要指標を一覧で確認できます。",
+    ):
+        summary_df = build_plan_summary_df(metrics)
+        formatters: Dict[str, str] = {}
+        if "月次計画額" in summary_df.columns:
+            formatters["月次計画額"] = "{:,.0f}"
+        if "年間計画額" in summary_df.columns:
+            formatters["年間計画額"] = "{:,.0f}"
+        if "指標値" in summary_df.columns:
+            formatters["指標値"] = "{:,.1f}"
+        st.dataframe(summary_df.style.format(formatters), use_container_width=True)
+
+        download_button_from_df(
+            "計画サマリーをCSVでダウンロード",
+            summary_df,
+            "business_plan_summary.csv",
         )
 
-    st.markdown("#### 財務指標サマリー")
-    summary_df = build_plan_summary_df(metrics)
-    formatters: Dict[str, str] = {}
-    if "月次計画額" in summary_df.columns:
-        formatters["月次計画額"] = "{:,.0f}"
-    if "年間計画額" in summary_df.columns:
-        formatters["年間計画額"] = "{:,.0f}"
-    if "指標値" in summary_df.columns:
-        formatters["指標値"] = "{:,.1f}"
-    st.dataframe(summary_df.style.format(formatters), use_container_width=True)
+        actual_reference = context.get("actual_reference", {})
+        actual_caption: List[str] = []
+        if actual_reference.get("monthly_sales_avg") is not None:
+            actual_caption.append(f"平均売上 {actual_reference['monthly_sales_avg']:,.0f}円/月")
+        if actual_reference.get("monthly_profit_avg") is not None:
+            actual_caption.append(f"平均営業利益 {actual_reference['monthly_profit_avg']:,.0f}円/月")
+        if actual_reference.get("margin_avg") is not None:
+            actual_caption.append(f"平均利益率 {actual_reference['margin_avg'] * 100:.1f}%")
+        if actual_caption:
+            st.caption("過去実績: " + " / ".join(actual_caption))
 
-    download_button_from_df(
-        "計画サマリーをCSVでダウンロード",
-        summary_df,
-        "business_plan_summary.csv",
-    )
-
-    actual_reference = context.get("actual_reference", {})
-    actual_caption: List[str] = []
-    if actual_reference.get("monthly_sales_avg") is not None:
-        actual_caption.append(f"平均売上 {actual_reference['monthly_sales_avg']:,.0f}円/月")
-    if actual_reference.get("monthly_profit_avg") is not None:
-        actual_caption.append(f"平均営業利益 {actual_reference['monthly_profit_avg']:,.0f}円/月")
-    if actual_reference.get("margin_avg") is not None:
-        actual_caption.append(f"平均利益率 {actual_reference['margin_avg'] * 100:.1f}%")
-    if actual_caption:
-        st.caption("過去実績: " + " / ".join(actual_caption))
-
-    st.caption("入力内容はブラウザセッションに一時保存されます。CSVをダウンロードして関係者と共有してください。")
+        st.caption("入力内容はブラウザセッションに一時保存されます。CSVをダウンロードして関係者と共有してください。")
 
 
 def render_business_plan_wizard(actual_sales: Optional[pd.DataFrame]) -> None:
@@ -1574,6 +1971,8 @@ def render_business_plan_wizard(actual_sales: Optional[pd.DataFrame]) -> None:
     except TypeError:
         st.progress(progress_fraction)
         st.caption(progress_label)
+
+    render_plan_stepper(step_index)
 
     st.markdown(f"#### {PLAN_WIZARD_STEPS[step_index]['title']}")
     st.write(PLAN_WIZARD_STEPS[step_index]["description"])
@@ -1953,20 +2352,21 @@ def render_status_banner(alerts: Optional[List[str]]) -> None:
 def render_search_bar() -> str:
     """ヒーロー直下のクイック検索をカードスタイルで表示する。"""
 
-    st.markdown(
-        """
-        <div class="surface-card search-card"><div class="search-title">クイック検索</div>
-        """,
-        unsafe_allow_html=True,
-    )
-    st.markdown("</div>", unsafe_allow_html=True)
-    query = st.text_input(
-        "クイック検索",
-        placeholder="商品名、チャネル、チュートリアルを検索",
-        key="global_search",
-        label_visibility="collapsed",
-    )
-    st.markdown("</div>", unsafe_allow_html=True)
+    with st.container():
+        st.markdown(
+            "<div class='surface-card search-card'>", unsafe_allow_html=True
+        )
+        st.markdown(
+            "<div class='search-title'>クイック検索</div>",
+            unsafe_allow_html=True,
+        )
+        query = st.text_input(
+            "クイック検索",
+            placeholder="商品名、チャネル、チュートリアルを検索",
+            key="global_search",
+            label_visibility="collapsed",
+        )
+        st.markdown("</div>", unsafe_allow_html=True)
     return query
 
 
