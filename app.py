@@ -2588,7 +2588,6 @@ def render_navigation() -> Tuple[str, str]:
 
     selected_key = label_to_key[selected_label]
     st.session_state["main_nav"] = selected_key
-    st.session_state["main_nav_display"] = selected_label
     return selected_key, NAV_LABEL_LOOKUP[selected_key]
 
 
