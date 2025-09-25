@@ -8,7 +8,7 @@ import io
 from contextlib import contextmanager
 import calendar
 from datetime import date, datetime, timedelta
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 from urllib.parse import parse_qsl
 
 import numpy as np
@@ -4851,10 +4851,15 @@ def main() -> None:
             normalize_date_input(raw_period[0]) or min_date,
             normalize_date_input(raw_period[1]) or max_date,
         )
+        if isinstance(raw_period, list):
+            normalized_state_value: Union[List[date], Tuple[date, date]] = list(date_range)
+        else:
+            normalized_state_value = date_range
     else:
         normalized_single = normalize_date_input(raw_period) or min_date
         date_range = (normalized_single, normalized_single)
-    st.session_state[period_state_key] = date_range
+        normalized_state_value = normalized_single
+    st.session_state[period_state_key] = normalized_state_value
 
     available_channels = sorted(store_sales_df["channel"].dropna().unique().tolist())
     channel_state_key = FILTER_STATE_KEYS["channels"]
