@@ -965,6 +965,42 @@ def normalize_date_input(value: Any) -> Optional[date]:
         return None
 
 
+def normalize_period_state_value(
+    value: Any,
+    min_date: date,
+    max_date: date,
+    default_period: Tuple[date, date],
+) -> Tuple[date, date]:
+    """セッション状態に保存されている期間情報を安全なタプルに正規化する。"""
+
+    start_default, end_default = default_period
+    start_default = max(min_date, min(max_date, start_default))
+    end_default = max(min_date, min(max_date, end_default))
+
+    start_candidate: Optional[date]
+    end_candidate: Optional[date]
+
+    if isinstance(value, (list, tuple)) and len(value) == 2:
+        start_candidate = normalize_date_input(value[0])
+        end_candidate = normalize_date_input(value[1])
+    else:
+        single_value = normalize_date_input(value)
+        start_candidate = single_value
+        end_candidate = single_value
+
+    start = start_candidate or start_default
+    end = end_candidate or end_default
+
+    if start < min_date:
+        start = min_date
+    if end > max_date:
+        end = max_date
+    if start > end:
+        start, end = end, start
+
+    return start, end
+
+
 def prepare_plan_table(
     data: Any,
     columns: List[str],
@@ -4911,19 +4947,13 @@ def main() -> None:
     period_state_key = FILTER_STATE_KEYS["period"]
     stored_period = st.session_state.get(period_state_key)
     default_period = suggest_default_period(min_date, max_date)
-    if (
-        period_state_key not in st.session_state
-        or not isinstance(stored_period, (list, tuple))
-        or len(stored_period) != 2
-    ):
-        st.session_state[period_state_key] = default_period
-    else:
-        start_candidate = normalize_date_input(stored_period[0]) or min_date
-        end_candidate = normalize_date_input(stored_period[1]) or max_date
-        if start_candidate < min_date or end_candidate > max_date:
-            st.session_state[period_state_key] = default_period
-        else:
-            st.session_state[period_state_key] = (start_candidate, end_candidate)
+    normalized_period_state = normalize_period_state_value(
+        stored_period,
+        min_date,
+        max_date,
+        default_period,
+    )
+    st.session_state[period_state_key] = normalized_period_state
 
     st.sidebar.date_input(
         "表示期間（開始日 / 終了日）",
@@ -4932,21 +4962,13 @@ def main() -> None:
         max_value=max_date,
         key=period_state_key,
     )
-    raw_period = st.session_state[period_state_key]
-    if isinstance(raw_period, (list, tuple)) and len(raw_period) == 2:
-        date_range = (
-            normalize_date_input(raw_period[0]) or min_date,
-            normalize_date_input(raw_period[1]) or max_date,
-        )
-        if isinstance(raw_period, list):
-            normalized_state_value: Union[List[date], Tuple[date, date]] = list(date_range)
-        else:
-            normalized_state_value = date_range
-    else:
-        normalized_single = normalize_date_input(raw_period) or min_date
-        date_range = (normalized_single, normalized_single)
-        normalized_state_value = normalized_single
-    st.session_state[period_state_key] = normalized_state_value
+    raw_period = st.session_state.get(period_state_key)
+    current_period = normalize_period_state_value(
+        raw_period,
+        min_date,
+        max_date,
+        default_period,
+    )
 
     available_channels = sorted(store_sales_df["channel"].dropna().unique().tolist())
     channel_state_key = FILTER_STATE_KEYS["channels"]
@@ -5002,7 +5024,7 @@ def main() -> None:
     selected_store = st.session_state[store_state_key]
     selected_channels = st.session_state[channel_state_key]
     selected_categories = st.session_state[category_state_key]
-    date_range = st.session_state[period_state_key]
+    date_range = current_period
 
     filter_signature = build_filter_signature(
         selected_store,
