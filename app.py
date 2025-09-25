@@ -51,13 +51,6 @@ st.set_page_config(
     page_icon=":bar_chart:",
     layout="wide",
     initial_sidebar_state="expanded",
-    theme={
-        "base": "dark",
-        "primaryColor": "#0B1F3B",
-        "backgroundColor": "#050B18",
-        "secondaryBackgroundColor": "#0F1E33",
-        "textColor": "#F4F7FA",
-    },
 )
 
 
