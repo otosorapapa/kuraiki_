@@ -46,8 +46,8 @@ from data_processing import (
 )
 
 st.set_page_config(
-    page_title="経営ダッシュボード｜くらしいきいき社",
-    page_icon="📊",
+    page_title="経営ダッシュボード",
+    page_icon=":bar_chart:",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -300,11 +300,12 @@ SECONDARY_COLOR = "#5A6B7A"
 ACCENT_COLOR = "#1E88E5"
 BACKGROUND_COLOR = "#F7F8FA"
 SURFACE_COLOR = "#FFFFFF"
-SUCCESS_COLOR = "#37773A"
-WARNING_COLOR = "#D08700"
-ERROR_COLOR = "#BD3A3A"
+SUCCESS_COLOR = "#4C9750"  # #43A047 を20%減彩した値
+WARNING_COLOR = "#DC7C18"  # #F57C00 を20%減彩した値
+ERROR_COLOR = "#D34A47"  # #E53935 を20%減彩した値
 TEXT_COLOR = "#1A1A1A"
-MUTED_TEXT_COLOR = "#6B7280"
+CAPTION_TEXT_COLOR = "#858F9D"  # Primaryカラーの明度を約50%に調整
+MUTED_TEXT_COLOR = SECONDARY_COLOR
 MCKINSEY_FONT_STACK = (
     "'Inter', 'Inter var', 'Source Sans 3', '-apple-system', 'BlinkMacSystemFont', "
     "'Segoe UI', 'Helvetica Neue', 'Arial', 'Noto Sans JP', sans-serif"
@@ -318,6 +319,51 @@ NUMERIC_FONT_STACK = (
     "'BlinkMacSystemFont', 'Segoe UI', 'Helvetica Neue', 'Arial', 'Noto Sans JP', sans-serif"
 )
 MONO_FONT_STACK = "'Roboto Mono', 'Source Code Pro', monospace"
+
+COLOR_TOKENS: Dict[str, str] = {
+    "primary": PRIMARY_COLOR,
+    "secondary": SECONDARY_COLOR,
+    "accent": ACCENT_COLOR,
+    "background": BACKGROUND_COLOR,
+    "surface": SURFACE_COLOR,
+    "text": TEXT_COLOR,
+    "caption": CAPTION_TEXT_COLOR,
+    "muted": MUTED_TEXT_COLOR,
+    "success": SUCCESS_COLOR,
+    "warning": WARNING_COLOR,
+    "error": ERROR_COLOR,
+}
+
+TYPOGRAPHY_TOKENS: Dict[str, Dict[str, Union[str, int, float]]] = {
+    "h1": {"size": "1.75rem", "weight": 700, "line_height": 1.35},
+    "h2": {"size": "1.35rem", "weight": 600, "line_height": 1.4},
+    "body": {"size": "0.95rem", "weight": 400, "line_height": 1.55},
+    "body_small": {"size": "0.85rem", "weight": 400, "line_height": 1.5},
+    "numeric": {"size": "1.1rem", "weight": 600, "line_height": 1.35},
+    "caption": {"size": "0.78rem", "weight": 400, "line_height": 1.45},
+}
+
+SPACING_UNIT = 8
+SPACING_SCALE: Dict[str, str] = {
+    "xs": f"{SPACING_UNIT * 1:g}px",
+    "sm": f"{SPACING_UNIT * 1.5:g}px",
+    "md": f"{SPACING_UNIT * 2:g}px",
+    "lg": f"{SPACING_UNIT * 3:g}px",
+    "xl": f"{SPACING_UNIT * 4:g}px",
+}
+
+RADIUS_TOKENS: Dict[str, str] = {
+    "card": "12px",
+    "panel": "16px",
+    "chip": "999px",
+    "input": "10px",
+}
+
+SHADOW_TOKENS: Dict[str, str] = {
+    "sm": "0 8px 16px rgba(11,31,59,0.08)",
+    "md": "0 12px 24px rgba(11,31,59,0.08)",
+    "lg": "0 24px 48px rgba(11,31,59,0.16)",
+}
 
 
 def _hex_to_rgb(hex_color: str) -> Tuple[int, int, int]:
@@ -443,6 +489,7 @@ def inject_mckinsey_style() -> None:
         <style>
         :root {{
             --primary-color: {PRIMARY_COLOR};
+            --secondary-color: {SECONDARY_COLOR};
             --accent-color: {ACCENT_COLOR};
             --success-color: {SUCCESS_COLOR};
             --warning-color: {WARNING_COLOR};
@@ -457,9 +504,31 @@ def inject_mckinsey_style() -> None:
             --background-color: {BACKGROUND_COLOR};
             --text-color: {TEXT_COLOR};
             --muted-text-color: {MUTED_TEXT_COLOR};
+            --caption-text-color: {CAPTION_TEXT_COLOR};
             --font-family: {MCKINSEY_FONT_STACK};
             --alt-font-family: {ALT_FONT_FAMILY};
             --numeric-font-family: {NUMERIC_FONT_STACK};
+            --h1-size: {TYPOGRAPHY_TOKENS['h1']['size']};
+            --h1-line-height: {TYPOGRAPHY_TOKENS['h1']['line_height']};
+            --h2-size: {TYPOGRAPHY_TOKENS['h2']['size']};
+            --h2-line-height: {TYPOGRAPHY_TOKENS['h2']['line_height']};
+            --body-size: {TYPOGRAPHY_TOKENS['body']['size']};
+            --body-line-height: {TYPOGRAPHY_TOKENS['body']['line_height']};
+            --caption-size: {TYPOGRAPHY_TOKENS['caption']['size']};
+            --caption-line-height: {TYPOGRAPHY_TOKENS['caption']['line_height']};
+            --spacing-xs: {SPACING_SCALE['xs']};
+            --spacing-sm: {SPACING_SCALE['sm']};
+            --spacing-md: {SPACING_SCALE['md']};
+            --spacing-lg: {SPACING_SCALE['lg']};
+            --spacing-xl: {SPACING_SCALE['xl']};
+            --radius-card: {RADIUS_TOKENS['card']};
+            --radius-panel: {RADIUS_TOKENS['panel']};
+            --radius-chip: {RADIUS_TOKENS['chip']};
+            --radius-input: {RADIUS_TOKENS['input']};
+            --shadow-sm: {SHADOW_TOKENS['sm']};
+            --shadow-md: {SHADOW_TOKENS['md']};
+            --shadow-lg: {SHADOW_TOKENS['lg']};
+            --grid-max-width: 1200px;
         }}
         html, body {{
             background: var(--background-color);
@@ -467,6 +536,8 @@ def inject_mckinsey_style() -> None:
             background-image: none;
             color: var(--text-color);
             font-family: var(--font-family);
+            font-size: var(--body-size);
+            line-height: var(--body-line-height);
         }}
         .stApp, [data-testid="stAppViewContainer"] {{
             background: var(--background-color);
@@ -475,25 +546,69 @@ def inject_mckinsey_style() -> None:
             color: var(--text-color);
         }}
         main .block-container {{
-            max-width: 1200px;
-            padding: 2rem 2.5rem 3rem;
+            max-width: var(--grid-max-width);
+            padding: 3rem 2.5rem 3.5rem;
             color: var(--text-color);
         }}
         main .block-container p {{
             color: var(--text-color);
+            font-size: var(--body-size);
+            line-height: var(--body-line-height);
+        }}
+        main .block-container h1,
+        main .block-container h2,
+        main .block-container h3,
+        main .block-container h4 {{
+            color: var(--text-color);
+            font-family: var(--font-family);
+        }}
+        main .block-container h1 {{
+            font-size: var(--h1-size);
+            font-weight: 700;
+            line-height: var(--h1-line-height);
+            margin-bottom: var(--spacing-sm);
+        }}
+        main .block-container h2 {{
+            font-size: var(--h2-size);
+            font-weight: 600;
+            line-height: var(--h2-line-height);
+            margin-bottom: {SPACING_SCALE['sm']};
+        }}
+        main .block-container h3 {{
+            font-size: 1.15rem;
+            font-weight: 600;
+            margin-bottom: var(--spacing-xs);
+        }}
+        main .block-container h4 {{
+            font-size: 1rem;
+            font-weight: 600;
+        }}
+        .stMarkdown li,
+        label,
+        span[data-testid="stMarkdownContainer"] p {{
+            font-size: var(--body-size);
+            line-height: var(--body-line-height);
+        }}
+        small,
+        .stCaption,
+        .stMarkdown small,
+        .caption {{
+            color: var(--caption-text-color);
+            font-size: var(--caption-size);
+            line-height: var(--caption-line-height);
         }}
         .surface-card {{
             background: var(--surface-color);
-            border-radius: 12px;
-            padding: 1.5rem;
+            border-radius: var(--radius-card);
+            padding: 2rem;
             border: 1px solid rgba(11,31,59,0.08);
-            box-shadow: 0 12px 24px rgba(11,31,59,0.05);
+            box-shadow: var(--shadow-md);
         }}
         .hero-panel {{
             background: linear-gradient(135deg, rgba(11,31,59,0.9), rgba(30,136,229,0.75));
-            border-radius: 16px;
-            padding: 2.2rem 2.4rem;
-            box-shadow: 0 24px 48px rgba(11,31,59,0.18);
+            border-radius: var(--radius-panel);
+            padding: 2.5rem 3rem;
+            box-shadow: var(--shadow-lg);
             color: #ffffff;
             margin-bottom: 1.75rem;
         }}
@@ -517,8 +632,8 @@ def inject_mckinsey_style() -> None:
             display: inline-flex;
             align-items: center;
             gap: 0.35rem;
-            padding: 0.35rem 0.75rem;
-            border-radius: 999px;
+            padding: 0.5rem 1rem;
+            border-radius: var(--radius-chip);
             background: rgba(255,255,255,0.18);
             color: #ffffff;
             font-size: 0.85rem;
@@ -545,17 +660,17 @@ def inject_mckinsey_style() -> None:
         }}
         .chart-section {{
             background: var(--surface-color);
-            border-radius: 12px;
-            padding: 1.25rem 1.5rem;
+            border-radius: var(--radius-card);
+            padding: 1.5rem 1.75rem;
             border: 1px solid rgba(11,31,59,0.08);
-            box-shadow: 0 12px 28px rgba(11,31,59,0.05);
-            margin-bottom: 1.75rem;
+            box-shadow: var(--shadow-md);
+            margin-bottom: var(--spacing-lg);
         }}
         .chart-section__header {{
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 0.75rem;
+            margin-bottom: var(--spacing-sm);
         }}
         .chart-section__title {{
             font-size: 1.05rem;
@@ -565,25 +680,25 @@ def inject_mckinsey_style() -> None:
         .kpi-strip {{
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 1rem;
-            margin-bottom: 1.5rem;
+            gap: var(--spacing-sm);
+            margin-bottom: var(--spacing-lg);
         }}
         .kpi-strip__card {{
             background: var(--surface-color);
-            border-radius: 12px;
-            padding: 1rem 1.2rem;
+            border-radius: var(--radius-card);
+            padding: 1.25rem 1.5rem;
             border: 1px solid rgba(11,31,59,0.08);
-            box-shadow: 0 10px 20px rgba(11,31,59,0.05);
+            box-shadow: var(--shadow-sm);
         }}
         .kpi-strip__label {{
-            font-size: 0.75rem;
+            font-size: 0.78rem;
             letter-spacing: 0.08em;
             text-transform: uppercase;
             color: var(--muted-text-color);
-            margin-bottom: 0.35rem;
+            margin-bottom: var(--spacing-xs);
         }}
         .kpi-strip__value {{
-            font-size: 1.3rem;
+            font-size: 1.4rem;
             font-weight: 700;
             color: var(--primary-color);
             font-family: var(--numeric-font-family);
@@ -598,12 +713,12 @@ def inject_mckinsey_style() -> None:
         .dashboard-meta {{
             display: flex;
             flex-wrap: wrap;
-            gap: 0.5rem;
-            margin-bottom: 1.2rem;
+            gap: var(--spacing-xs);
+            margin-bottom: var(--spacing-md);
         }}
         .dashboard-meta__chip {{
-            padding: 0.25rem 0.75rem;
-            border-radius: 999px;
+            padding: 0.4rem 0.85rem;
+            border-radius: var(--radius-chip);
             background: rgba(11,31,59,0.08);
             color: var(--text-color);
             font-size: 0.8rem;
@@ -611,26 +726,38 @@ def inject_mckinsey_style() -> None:
         }}
         div[data-testid="stMetric"] {{
             background: var(--surface-color);
-            border-radius: 12px;
-            padding: 1rem 1.25rem;
+            border-radius: var(--radius-card);
+            padding: 1.25rem 1.5rem;
             border: 1px solid rgba(11,31,59,0.1);
-            box-shadow: 0 12px 24px rgba(11,31,59,0.05);
+            box-shadow: var(--shadow-md);
+        }}
+        div[data-testid="stMetricLabel"] {{
+            color: var(--muted-text-color);
+            font-size: 0.8rem;
+            letter-spacing: 0.02em;
         }}
         div[data-testid="stMetricValue"] {{
             font-family: var(--numeric-font-family);
             font-variant-numeric: tabular-nums;
             font-feature-settings: 'tnum';
             color: var(--primary-color);
+            font-size: 1.45rem;
         }}
         div[data-testid="stMetricDelta"] {{
             font-weight: 600;
+            font-size: 0.9rem;
+            display: flex;
+            align-items: center;
+        }}
+        div[data-testid="stMetricDelta"] svg {{
+            fill: currentColor !important;
         }}
         .status-pill {{
             display: inline-flex;
             align-items: center;
             gap: 0.35rem;
-            padding: 0.25rem 0.65rem;
-            border-radius: 999px;
+            padding: 0.35rem 0.75rem;
+            border-radius: var(--radius-chip);
             font-size: 0.8rem;
             font-weight: 600;
         }}
@@ -655,9 +782,9 @@ def inject_mckinsey_style() -> None:
             color: var(--error-color);
         }}
         .alert-banner {{
-            border-radius: 12px;
+            border-radius: var(--radius-card);
             padding: 1rem 1.25rem;
-            margin-bottom: 1rem;
+            margin-bottom: var(--spacing-md);
             border: 1px solid transparent;
             background: var(--surface-color);
             color: var(--text-color);
@@ -675,15 +802,15 @@ def inject_mckinsey_style() -> None:
         .data-status-grid {{
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-            gap: 1rem;
-            margin-top: 1.25rem;
+            gap: var(--spacing-sm);
+            margin-top: var(--spacing-sm);
         }}
         .data-status-card {{
             background: var(--surface-color);
-            border-radius: 12px;
-            padding: 1.1rem 1.3rem;
+            border-radius: var(--radius-card);
+            padding: 1.25rem 1.4rem;
             border: 1px solid rgba(11,31,59,0.08);
-            box-shadow: 0 12px 24px rgba(11,31,59,0.05);
+            box-shadow: var(--shadow-md);
         }}
         section[data-testid="stSidebar"] {{
             background: var(--surface-color);
@@ -692,18 +819,18 @@ def inject_mckinsey_style() -> None:
         }}
         section[data-testid="stSidebar"] .sidebar-section {{
             background: var(--surface-color);
-            border-radius: 12px;
+            border-radius: var(--radius-card);
             border: 1px solid rgba(11,31,59,0.08);
-            padding: 1rem 1.1rem;
-            box-shadow: 0 8px 16px rgba(11,31,59,0.04);
-            margin-bottom: 1rem;
+            padding: 1.25rem 1.35rem;
+            box-shadow: var(--shadow-sm);
+            margin-bottom: var(--spacing-sm);
         }}
         section[data-testid="stSidebar"] .sidebar-section__status {{
             display: inline-flex;
             align-items: center;
             gap: 0.3rem;
-            padding: 0.25rem 0.6rem;
-            border-radius: 999px;
+            padding: 0.35rem 0.7rem;
+            border-radius: var(--radius-chip);
             background: rgba(30,136,229,0.12);
             color: var(--accent-color);
             font-size: 0.8rem;
@@ -715,10 +842,10 @@ def inject_mckinsey_style() -> None:
             gap: 0.6rem;
         }}
         .main-nav-block div[role="radiogroup"] label {{
-            padding: 0.45rem 1.1rem;
-            border-radius: 999px;
+            padding: 0.5rem 1.2rem;
+            border-radius: var(--radius-chip);
             border: 1px solid rgba(11,31,59,0.16);
-            background: rgba(255,255,255,0.85);
+            background: rgba(255,255,255,0.9);
             font-weight: 600;
             color: var(--text-color);
         }}
@@ -728,13 +855,13 @@ def inject_mckinsey_style() -> None:
             border-color: rgba(11,31,59,0.35);
         }}
         .search-card input {{
-            border-radius: 10px;
+            border-radius: var(--radius-input);
             border: 1px solid rgba(11,31,59,0.18);
             padding: 0.6rem 0.9rem;
         }}
         .stApp main .stButton>button,
         .stApp main .stDownloadButton>button {{
-            border-radius: 10px;
+            border-radius: var(--radius-input);
             padding: 0.65rem 1.4rem;
             font-weight: 600;
             background: var(--accent-color);
@@ -746,15 +873,37 @@ def inject_mckinsey_style() -> None:
         .stApp main .stDownloadButton>button:hover {{
             filter: brightness(0.95);
         }}
+        div[data-baseweb="tab-list"] {{
+            gap: var(--spacing-xs);
+            border-bottom: 1px solid rgba(11,31,59,0.12);
+            margin-bottom: var(--spacing-sm);
+        }}
+        div[data-baseweb="tab"] {{
+            padding: 0.75rem 1.4rem;
+            border-radius: var(--radius-chip) var(--radius-chip) 0 0;
+            font-weight: 600;
+            color: var(--muted-text-color);
+        }}
+        div[data-baseweb="tab"][aria-selected="true"] {{
+            background: var(--surface-color);
+            color: var(--primary-color);
+            box-shadow: inset 0 -3px 0 var(--primary-color);
+        }}
+        input, select, textarea {{
+            border-radius: var(--radius-input) !important;
+            border: 1px solid rgba(11,31,59,0.18) !important;
+            padding: 0.6rem 0.9rem !important;
+            font-size: var(--body-size) !important;
+        }}
         @media (max-width: 900px) {{
             main .block-container {{
-                padding: 1.6rem 1.2rem 2.6rem;
+                padding: 2rem 1.5rem 2.75rem;
             }}
             .kpi-strip {{
                 grid-template-columns: 1fr;
             }}
             .hero-panel {{
-                padding: 1.8rem 1.6rem;
+                padding: 2rem 1.8rem;
             }}
         }}
         </style>
