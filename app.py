@@ -1562,12 +1562,12 @@ def normalize_period_state_value(
     start = start_candidate or start_default
     end = end_candidate or end_default
 
-    if start < min_date:
-        start = min_date
-    if end > max_date:
-        end = max_date
+    start = max(min_date, min(max_date, start))
+    end = max(min_date, min(max_date, end))
     if start > end:
         start, end = end, start
+        start = max(min_date, min(max_date, start))
+        end = max(min_date, min(max_date, end))
 
     return start, end
 
