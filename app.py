@@ -5,6 +5,7 @@ from __future__ import annotations
 import html
 import hashlib
 import io
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
 import calendar
 from datetime import date, datetime, timedelta
@@ -50,6 +51,13 @@ st.set_page_config(
     page_icon=":bar_chart:",
     layout="wide",
     initial_sidebar_state="expanded",
+    theme={
+        "base": "dark",
+        "primaryColor": "#0B1F3B",
+        "backgroundColor": "#050B18",
+        "secondaryBackgroundColor": "#0F1E33",
+        "textColor": "#F4F7FA",
+    },
 )
 
 
@@ -292,6 +300,7 @@ PRIMARY_NAV_ITEMS: List[Dict[str, str]] = [
     {"key": "inventory", "label": "在庫", "icon": "📦"},
     {"key": "cash", "label": "資金", "icon": "💰"},
     {"key": "kpi", "label": "KPI", "icon": "📈"},
+    {"key": "scenario", "label": "シナリオ分析", "icon": "🧮"},
     {"key": "data", "label": "データ管理", "icon": "🗂"},
 ]
 
@@ -350,6 +359,38 @@ COLOR_TOKENS: Dict[str, str] = {
     "warning": WARNING_COLOR,
     "error": ERROR_COLOR,
 }
+
+DARK_THEME_TOKENS: Dict[str, str] = {
+    "background": "#050B18",
+    "surface": "#111E2E",
+    "text": "#EEF3FF",
+    "caption": "#A8B5CB",
+    "muted": "#8FA5C6",
+}
+
+PHASE2_SESSION_DEFAULTS: Dict[str, Any] = {
+    "scenario_inputs": [],
+    "scenario_uploaded_df": None,
+    "scenario_results": None,
+    "phase2_summary_df": None,
+    "phase2_swot": None,
+    "phase2_benchmark": None,
+    "phase2_report_summary": "",
+    "ui_theme_mode": "dark",
+}
+
+
+def init_phase2_session_state() -> None:
+    """初回アクセス時にPhase2で利用するセッション状態を初期化する。"""
+
+    for key, default in PHASE2_SESSION_DEFAULTS.items():
+        if key not in st.session_state:
+            if isinstance(default, list):
+                st.session_state[key] = list(default)
+            elif isinstance(default, dict):
+                st.session_state[key] = dict(default)
+            else:
+                st.session_state[key] = default
 
 TYPOGRAPHY_TOKENS: Dict[str, Dict[str, Union[str, int, float]]] = {
     "h1": {"size": "1.75rem", "weight": 700, "line_height": 1.35},
@@ -498,8 +539,14 @@ def apply_altair_theme(chart: alt.Chart) -> alt.Chart:
     )
 
 
-def inject_mckinsey_style() -> None:
+def inject_mckinsey_style(*, dark_mode: bool = False) -> None:
     """デザイン・トークンとマッキンゼー風スタイルをアプリに適用する。"""
+
+    surface_color = DARK_THEME_TOKENS["surface"] if dark_mode else SURFACE_COLOR
+    background_color = DARK_THEME_TOKENS["background"] if dark_mode else BACKGROUND_COLOR
+    text_color = DARK_THEME_TOKENS["text"] if dark_mode else TEXT_COLOR
+    caption_color = DARK_THEME_TOKENS["caption"] if dark_mode else CAPTION_TEXT_COLOR
+    muted_text_color = DARK_THEME_TOKENS["muted"] if dark_mode else MUTED_TEXT_COLOR
 
     st.markdown(
         f"""
@@ -517,11 +564,11 @@ def inject_mckinsey_style() -> None:
             --success-surface: {SUCCESS_SURFACE_COLOR};
             --warning-surface: {WARNING_SURFACE_COLOR};
             --error-surface: {ERROR_SURFACE_COLOR};
-            --surface-color: {SURFACE_COLOR};
-            --background-color: {BACKGROUND_COLOR};
-            --text-color: {TEXT_COLOR};
-            --muted-text-color: {MUTED_TEXT_COLOR};
-            --caption-text-color: {CAPTION_TEXT_COLOR};
+            --surface-color: {surface_color};
+            --background-color: {background_color};
+            --text-color: {text_color};
+            --muted-text-color: {muted_text_color};
+            --caption-text-color: {caption_color};
             --font-family: {MCKINSEY_FONT_STACK};
             --alt-font-family: {ALT_FONT_FAMILY};
             --numeric-font-family: {NUMERIC_FONT_STACK};
@@ -862,7 +909,7 @@ def inject_mckinsey_style() -> None:
             padding: 0.5rem 1.2rem;
             border-radius: var(--radius-chip);
             border: 1px solid rgba(11,31,59,0.16);
-            background: rgba(255,255,255,0.9);
+            background: var(--surface-color);
             font-weight: 600;
             color: var(--text-color);
         }}
@@ -4951,6 +4998,641 @@ def render_data_status_section(
     if use_sample_data:
         st.caption("※ 現在はサンプルデータを表示しています。実データをアップロードすると自動的に置き換わります。")
 
+
+def normalize_scenario_input(df: Optional[pd.DataFrame]) -> pd.DataFrame:
+    """Phase2シナリオモジュール向けのベースデータを正規化する。"""
+
+    if df is None or df.empty:
+        return pd.DataFrame(columns=["order_date", "order_month", "sales_amount", "net_gross_profit"])
+
+    working = df.copy()
+    column_lookup = {col.lower(): col for col in working.columns}
+
+    def _match_column(candidates: Sequence[str]) -> Optional[str]:
+        for candidate in candidates:
+            if candidate in working.columns:
+                return candidate
+            lowered = candidate.lower()
+            if lowered in column_lookup:
+                return column_lookup[lowered]
+        return None
+
+    sales_col = _match_column(["sales_amount", "sales", "売上", "売上高", "revenue", "total_sales"])
+    if sales_col and sales_col != "sales_amount":
+        working.rename(columns={sales_col: "sales_amount"}, inplace=True)
+    if "sales_amount" not in working.columns:
+        working["sales_amount"] = 0.0
+    working["sales_amount"] = pd.to_numeric(working["sales_amount"], errors="coerce").fillna(0.0)
+
+    date_col = _match_column(["order_date", "date", "日付", "年月日", "month"])
+    year_col = _match_column(["year", "年度", "会計年度"])
+    if date_col and date_col != "order_date":
+        working["order_date"] = pd.to_datetime(working[date_col], errors="coerce")
+    elif "order_date" in working.columns:
+        working["order_date"] = pd.to_datetime(working["order_date"], errors="coerce")
+    elif year_col:
+        working["order_date"] = pd.to_datetime(working[year_col].astype(str) + "-01", errors="coerce")
+    else:
+        working["order_date"] = pd.date_range(
+            end=pd.Timestamp.today(), periods=len(working), freq="M"
+        )
+
+    working.dropna(subset=["order_date"], inplace=True)
+    working.sort_values("order_date", inplace=True)
+    working["order_month"] = pd.PeriodIndex(working["order_date"], freq="M")
+
+    profit_col = _match_column(["net_gross_profit", "gross_profit", "profit", "粗利", "営業利益"])
+    if profit_col and profit_col != "net_gross_profit":
+        working.rename(columns={profit_col: "net_gross_profit"}, inplace=True)
+    if "net_gross_profit" in working.columns:
+        working["net_gross_profit"] = pd.to_numeric(
+            working["net_gross_profit"], errors="coerce"
+        ).fillna(working["sales_amount"] * 0.45)
+    else:
+        working["net_gross_profit"] = working["sales_amount"] * 0.45
+
+    base_columns = ["order_date", "order_month", "sales_amount", "net_gross_profit"]
+    remaining_columns = [col for col in working.columns if col not in base_columns]
+    return working[base_columns + remaining_columns]
+
+
+def calculate_recent_growth(series: Optional[pd.Series]) -> Optional[float]:
+    """直近2期間の成長率（割合）を返す。"""
+
+    if series is None or series.empty or len(series) < 2:
+        return None
+    latest = float(series.iloc[-1])
+    previous = float(series.iloc[-2])
+    if previous == 0:
+        return None
+    growth = (latest - previous) / previous
+    if not np.isfinite(growth):
+        return None
+    return growth
+
+
+def build_swot_insights(
+    kpi: Dict[str, Optional[float]], growth_rate: Optional[float]
+) -> Dict[str, List[str]]:
+    """KPIからSWOT分析コメントを生成する。"""
+
+    strengths: List[str] = []
+    weaknesses: List[str] = []
+    opportunities: List[str] = []
+    threats: List[str] = []
+
+    gross_margin = kpi.get("gross_margin_rate")
+    repeat_rate = kpi.get("repeat_rate")
+    roas = kpi.get("roas")
+    churn_rate = kpi.get("churn_rate")
+    ltv = kpi.get("ltv")
+    cac = kpi.get("cac")
+
+    if gross_margin is not None and np.isfinite(gross_margin):
+        if gross_margin >= 0.55:
+            strengths.append("粗利率が業界平均を上回り、利益創出力が高い状態です。")
+        else:
+            weaknesses.append("粗利率が業界水準を下回っています。原価と販管費の最適化が必要です。")
+
+    if repeat_rate is not None and np.isfinite(repeat_rate):
+        if repeat_rate >= 0.40:
+            strengths.append("リピート率が40%超で、ファン顧客が育っています。")
+        else:
+            weaknesses.append("リピート率が伸び悩んでいます。CRM施策の強化を検討しましょう。")
+
+    if roas is not None and np.isfinite(roas):
+        if roas >= 4.0:
+            strengths.append("広告投資の回収効率が高く、成長投資を加速できます。")
+        elif roas < 2.5:
+            threats.append("ROASが低位で広告費の回収が遅れています。チャネルポートフォリオの見直しが必要です。")
+
+    if churn_rate is not None and np.isfinite(churn_rate) and churn_rate > 0.05:
+        threats.append("解約率が5%を超過しています。オンボーディングやロイヤルティ施策を強化しましょう。")
+
+    if (
+        ltv is not None
+        and cac is not None
+        and np.isfinite(ltv)
+        and np.isfinite(cac)
+        and cac > 0
+    ):
+        ratio = ltv / cac
+        if ratio >= 3.0:
+            strengths.append("LTV/CACが3倍以上で投資リターンが十分です。")
+        elif ratio < 2.0:
+            threats.append("LTV/CACが2倍未満のため、顧客獲得コストの圧縮が課題です。")
+
+    if growth_rate is not None:
+        if growth_rate > 0.05:
+            opportunities.append("直近売上が5%以上成長しており、攻めの投資タイミングです。")
+        elif growth_rate < 0:
+            threats.append("売上が減速傾向にあります。販促や価格政策の再設計が必要です。")
+
+    opportunities.append("新チャネル開拓や外部調達により成長余地を拡大できます。")
+
+    return {
+        "strengths": strengths or ["強みを特定するデータが不足しています。"],
+        "weaknesses": weaknesses or ["大きな弱みは検出されませんでした。"],
+        "opportunities": opportunities or ["追加の市場調査により機会を探索できます。"],
+        "threats": threats or ["重大な脅威は検出されませんでした。"],
+    }
+
+
+def build_industry_benchmark_table(kpi: Dict[str, Optional[float]]) -> pd.DataFrame:
+    """業界平均と比較するベンチマーク表を作成する。"""
+
+    benchmarks = {
+        "gross_margin_rate": 0.52,
+        "repeat_rate": 0.38,
+        "roas": 3.5,
+        "ltv": 32000.0,
+        "cac": 12000.0,
+    }
+    labels = {
+        "gross_margin_rate": "売上総利益率 (%)",
+        "repeat_rate": "リピート率 (%)",
+        "roas": "ROAS",
+        "ltv": "LTV (円)",
+        "cac": "CAC (円)",
+    }
+
+    rows: List[Dict[str, Any]] = []
+    for key, label in labels.items():
+        company_value = kpi.get(key)
+        industry_value = benchmarks.get(key)
+        if key in {"gross_margin_rate", "repeat_rate"}:
+            company_value = (company_value or 0.0) * 100 if company_value is not None else np.nan
+            industry_value = (industry_value or 0.0) * 100 if industry_value is not None else np.nan
+        rows.append(
+            {
+                "指標": label,
+                "自社": float(company_value) if company_value is not None else np.nan,
+                "業界平均": float(industry_value) if industry_value is not None else np.nan,
+                "差分": (
+                    float(company_value) - float(industry_value)
+                    if company_value is not None
+                    and industry_value is not None
+                    and np.isfinite(company_value)
+                    and np.isfinite(industry_value)
+                    else np.nan
+                ),
+            }
+        )
+
+    return pd.DataFrame(rows)
+
+
+def run_scenario_projection(
+    monthly_sales: pd.Series, scenario: Dict[str, Any]
+) -> Tuple[str, pd.DataFrame, Dict[str, Any], pd.DataFrame]:
+    """シナリオ設定に基づき将来12〜36ヶ月の推移を試算する。"""
+
+    scenario_name = scenario.get("name") or "新規シナリオ"
+    growth = float(scenario.get("growth", 0.0)) / 100.0
+    margin = max(0.0, float(scenario.get("margin", 0.0))) / 100.0
+    funding = float(scenario.get("funding", 0.0))
+    horizon = int(scenario.get("horizon", 12) or 12)
+    if horizon <= 0:
+        horizon = 12
+
+    base_series = monthly_sales.copy() if monthly_sales is not None else pd.Series(dtype=float)
+    if base_series.empty:
+        base_series = pd.Series([1_000_000.0], index=pd.PeriodIndex([pd.Period(date.today(), freq="M")]))
+    base_series = base_series.sort_index()
+
+    seasonal_values = base_series.tail(min(len(base_series), horizon)).to_list()
+    if not seasonal_values:
+        seasonal_values = [float(base_series.iloc[-1])]
+    while len(seasonal_values) < horizon:
+        seasonal_values.extend(seasonal_values[: horizon - len(seasonal_values)])
+    base_array = np.array(seasonal_values[:horizon], dtype=float)
+
+    if isinstance(base_series.index, pd.PeriodIndex):
+        start_period = base_series.index[-1]
+    else:
+        try:
+            start_period = pd.Period(base_series.index.max(), freq="M")
+        except Exception:
+            start_period = pd.Period(date.today(), freq="M")
+    projection_periods = pd.period_range(start=start_period + 1, periods=horizon, freq="M")
+
+    cumulative_cash = funding
+    rows: List[Dict[str, Any]] = []
+    for idx, (base_value, period) in enumerate(zip(base_array, projection_periods), start=1):
+        projected_sales = base_value * ((1 + growth) ** idx)
+        projected_profit = projected_sales * margin
+        cumulative_cash += projected_profit
+        rows.append(
+            {
+                "scenario": scenario_name,
+                "month_index": idx,
+                "period": period.to_timestamp(),
+                "period_label": period.strftime("%Y-%m"),
+                "sales": projected_sales,
+                "profit": projected_profit,
+                "cash": cumulative_cash,
+                "funding": funding,
+                "growth_pct": growth * 100,
+                "margin_pct": margin * 100,
+            }
+        )
+
+    projection_df = pd.DataFrame(rows)
+    annual_sales = float(projection_df["sales"].sum()) if not projection_df.empty else 0.0
+    annual_profit = float(projection_df["profit"].sum()) if not projection_df.empty else 0.0
+    summary_row = {
+        "シナリオ": scenario_name,
+        "年間売上": annual_sales,
+        "年間利益": annual_profit,
+        "平均月次売上": float(projection_df["sales"].mean()) if not projection_df.empty else 0.0,
+        "期末キャッシュ": float(projection_df["cash"].iloc[-1]) if not projection_df.empty else funding,
+        "成長率(%)": growth * 100,
+        "利益率(%)": margin * 100,
+        "調達額": funding,
+    }
+
+    margin_center = margin * 100
+    margin_points = np.linspace(max(0.0, margin_center - 10), min(100.0, margin_center + 10), 5)
+    sensitivity_rows = [
+        {
+            "scenario": scenario_name,
+            "margin": point,
+            "annual_profit": annual_sales * (point / 100.0),
+        }
+        for point in margin_points
+    ]
+    sensitivity_df = pd.DataFrame(sensitivity_rows)
+
+    return scenario_name, projection_df, summary_row, sensitivity_df
+
+
+def generate_phase2_report(
+    summary_df: Optional[pd.DataFrame],
+    swot: Optional[Dict[str, List[str]]],
+    benchmark_df: Optional[pd.DataFrame],
+) -> str:
+    """シナリオ比較のサマリーを含むテキストレポートを生成する。"""
+
+    buffer = io.StringIO()
+    buffer.write("=== シナリオ分析レポート ===\n")
+    buffer.write(f"生成日時: {datetime.now():%Y-%m-%d %H:%M}\n\n")
+
+    if summary_df is not None and not summary_df.empty:
+        buffer.write("[シナリオ比較サマリー]\n")
+        for _, row in summary_df.iterrows():
+            buffer.write(
+                "- {name}: 年間売上 {sales:,.0f} 円 / 年間利益 {profit:,.0f} 円 / 期末キャッシュ {cash:,.0f} 円\n".format(
+                    name=row.get("シナリオ", "-"),
+                    sales=row.get("年間売上", 0.0),
+                    profit=row.get("年間利益", 0.0),
+                    cash=row.get("期末キャッシュ", 0.0),
+                )
+            )
+
+    if swot:
+        buffer.write("\n[SWOT分析]\n")
+        for title, key in [
+            ("Strengths", "strengths"),
+            ("Weaknesses", "weaknesses"),
+            ("Opportunities", "opportunities"),
+            ("Threats", "threats"),
+        ]:
+            buffer.write(f"{title}:\n")
+            for item in swot.get(key, []):
+                buffer.write(f"  - {item}\n")
+
+    if benchmark_df is not None and not benchmark_df.empty:
+        buffer.write("\n[業界ベンチマーク]\n")
+        for _, row in benchmark_df.iterrows():
+            indicator = row.get("指標", "-")
+            company_value = row.get("自社")
+            industry_value = row.get("業界平均")
+            diff_value = row.get("差分")
+
+            def _fmt(value: Any, suffix: str = "") -> str:
+                if value is None:
+                    return "-"
+                try:
+                    if np.isnan(value):
+                        return "-"
+                except TypeError:
+                    pass
+                return f"{value:,.2f}{suffix}"
+
+            suffix = "%" if "率" in str(indicator) else ""
+            buffer.write(
+                f"- {indicator}: 自社 {_fmt(company_value, suffix)} / 業界 {_fmt(industry_value, suffix)} / 差分 {_fmt(diff_value, suffix)}\n"
+            )
+
+    return buffer.getvalue()
+
+
+def render_scenario_analysis_section(
+    merged_df: pd.DataFrame,
+    subscription_df: Optional[pd.DataFrame],
+) -> None:
+    """Phase2で追加するシナリオ分析ハブを描画する。"""
+
+    st.markdown(
+        """
+        <div class="surface-card" style="display:flex;justify-content:space-between;align-items:center;gap:1rem;">
+            <div>
+                <div style="font-size:1.1rem;font-weight:700;">🧭 戦略意思決定センター</div>
+                <div style="color:var(--muted-text-color);font-size:0.9rem;">Scenario Intelligence Hub</div>
+            </div>
+            <div style="display:flex;gap:0.4rem;">
+                <a href="https://www.linkedin.com" style="text-decoration:none;border-radius:999px;padding:0.35rem 0.75rem;background:var(--accent-color);color:#ffffff;font-weight:600;">in</a>
+                <a href="https://twitter.com" style="text-decoration:none;border-radius:999px;padding:0.35rem 0.75rem;border:1px solid rgba(255,255,255,0.25);color:var(--text-color);">X</a>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    tabs = st.tabs(["データ入力", "分析結果", "シナリオ比較", "レポート出力"])
+
+    stored_base = st.session_state.get("scenario_uploaded_df")
+    base_df = (
+        stored_base.copy()
+        if isinstance(stored_base, pd.DataFrame) and not stored_base.empty
+        else normalize_scenario_input(merged_df)
+    )
+
+    monthly_sales = None
+    if isinstance(base_df, pd.DataFrame) and not base_df.empty and "sales_amount" in base_df.columns:
+        if "order_month" not in base_df.columns:
+            base_df["order_month"] = pd.PeriodIndex(pd.to_datetime(base_df["order_date"]), freq="M")
+        monthly_sales = base_df.groupby("order_month")["sales_amount"].sum().sort_index()
+
+    with tabs[0]:
+        st.header("入力データ")
+        uploaded_file = st.file_uploader(
+            "シナリオ用の売上データをアップロード", type=["csv", "xlsx"], key="scenario_file_uploader"
+        )
+        if uploaded_file is not None:
+            try:
+                if uploaded_file.name.lower().endswith(".csv"):
+                    raw_df = pd.read_csv(uploaded_file)
+                else:
+                    raw_df = pd.read_excel(uploaded_file)
+                normalized_df = normalize_scenario_input(raw_df)
+                st.session_state["scenario_uploaded_df"] = normalized_df
+                st.success("アップロードしたデータをシナリオ基礎データとして設定しました。")
+            except Exception as exc:  # pragma: no cover - runtime保護
+                st.error(f"データの読み込みに失敗しました: {exc}")
+
+        if st.button("現在のダッシュボードデータを基準にする", key="scenario_use_dashboard"):
+            normalized_df = normalize_scenario_input(merged_df)
+            if normalized_df is not None and not normalized_df.empty:
+                st.session_state["scenario_uploaded_df"] = normalized_df
+                st.success("ダッシュボードの集計結果を基にシナリオ分析を行います。")
+            else:
+                st.warning("利用可能なダッシュボードデータがありません。")
+
+        preview_df = st.session_state.get("scenario_uploaded_df")
+        if isinstance(preview_df, pd.DataFrame) and not preview_df.empty:
+            st.caption("現在アクティブなシナリオ基礎データ")
+            st.dataframe(preview_df.tail(10))
+        else:
+            st.info("シナリオ用のデータをアップロードするか、既存データを読み込んでください。")
+
+        scenarios = st.session_state.get("scenario_inputs", [])
+        with st.form("scenario_entry_form", clear_on_submit=True):
+            st.subheader("シナリオパラメータ")
+            default_name = f"シナリオ {len(scenarios) + 1}"
+            scenario_name = st.text_input("シナリオ名", value=default_name)
+            growth = st.number_input("売上成長率 (%)", min_value=-50.0, max_value=150.0, value=5.0, step=0.5)
+            margin = st.number_input("営業利益率 (%)", min_value=0.0, max_value=100.0, value=12.0, step=0.5)
+            funding = st.number_input("資金調達額 (円)", min_value=0.0, value=0.0, step=100_000.0, format="%.0f")
+            horizon = st.slider("分析期間 (ヶ月)", min_value=3, max_value=36, value=12)
+            submitted = st.form_submit_button("シナリオを追加")
+            if submitted:
+                scenarios.append(
+                    {
+                        "name": scenario_name,
+                        "growth": growth,
+                        "margin": margin,
+                        "funding": funding,
+                        "horizon": horizon,
+                    }
+                )
+                st.session_state["scenario_inputs"] = scenarios
+                st.success(f"シナリオ『{scenario_name}』を登録しました。")
+
+        if scenarios:
+            st.markdown("### 登録済みシナリオ")
+            for idx, scenario in enumerate(list(scenarios)):
+                info_col, remove_col = st.columns([5, 1])
+                info_col.markdown(
+                    f"**{scenario['name']}** — 成長率 {scenario['growth']:.1f}% / 利益率 {scenario['margin']:.1f}% / "
+                    f"調達額 {scenario['funding']:,.0f} 円 / 期間 {scenario['horizon']}ヶ月"
+                )
+                if remove_col.button("削除", key=f"remove_scenario_{idx}"):
+                    scenarios.pop(idx)
+                    st.session_state["scenario_inputs"] = scenarios
+                    st.experimental_rerun()
+
+    with tabs[1]:
+        st.header("分析結果")
+        if base_df is None or base_df.empty:
+            st.info("データが読み込まれていません。先にデータ入力タブで設定してください。")
+            st.session_state["phase2_swot"] = None
+            st.session_state["phase2_benchmark"] = None
+        else:
+            growth_rate = calculate_recent_growth(monthly_sales)
+            if "order_month" not in base_df.columns:
+                base_df["order_month"] = pd.PeriodIndex(pd.to_datetime(base_df["order_date"]), freq="M")
+            try:
+                kpi_dict = calculate_kpis(base_df, subscription_df)
+            except Exception:  # pragma: no cover - 安全策
+                kpi_dict = {}
+
+            latest_sales = (
+                float(monthly_sales.iloc[-1]) if monthly_sales is not None and not monthly_sales.empty else 0.0
+            )
+            delta_label = f"{growth_rate * 100:.1f}%" if growth_rate is not None else None
+            metric_cols = st.columns(3)
+            metric_cols[0].metric("最新月売上", f"{latest_sales:,.0f} 円", delta=delta_label)
+            gross_margin_pct = kpi_dict.get("gross_margin_rate")
+            if gross_margin_pct is not None and np.isfinite(gross_margin_pct):
+                metric_cols[1].metric("粗利率", f"{gross_margin_pct * 100:,.1f}%")
+            active_customers = kpi_dict.get("active_customers")
+            if active_customers is not None and np.isfinite(active_customers):
+                metric_cols[2].metric("アクティブ顧客", f"{active_customers:,.0f} 人")
+
+            if monthly_sales is not None and not monthly_sales.empty:
+                trend_df = monthly_sales.reset_index()
+                trend_df["period_start"] = trend_df["order_month"].dt.to_timestamp()
+                chart = alt.Chart(trend_df).mark_line(point=True).encode(
+                    x=alt.X("period_start:T", title="期間"),
+                    y=alt.Y("sales_amount:Q", title="売上高"),
+                    tooltip=["period_start:T", alt.Tooltip("sales_amount", title="売上高", format=",")],
+                ).properties(height=320)
+                st.altair_chart(apply_altair_theme(chart), use_container_width=True)
+
+            swot = build_swot_insights(kpi_dict, growth_rate)
+            st.session_state["phase2_swot"] = swot
+            swot_cols = st.columns(4)
+            swot_titles = [
+                ("Strengths", "strengths", "🟢"),
+                ("Weaknesses", "weaknesses", "🟠"),
+                ("Opportunities", "opportunities", "🔵"),
+                ("Threats", "threats", "🔴"),
+            ]
+            for col, (title, key, icon) in zip(swot_cols, swot_titles):
+                col.markdown(f"#### {icon} {title}")
+                for item in swot.get(key, []):
+                    col.markdown(f"- {item}")
+
+            benchmark_df = build_industry_benchmark_table(kpi_dict)
+            st.session_state["phase2_benchmark"] = benchmark_df
+            st.markdown("### 業界ベンチマーク比較")
+            if benchmark_df.empty:
+                st.info("比較可能なKPIが不足しています。")
+            else:
+                st.dataframe(benchmark_df.style.format({"自社": "{:.2f}", "業界平均": "{:.2f}", "差分": "{:.2f}"}))
+
+            if gross_margin_pct is not None and monthly_sales is not None and not monthly_sales.empty:
+                base_sales = float(monthly_sales.iloc[-1])
+                growth_points = np.linspace(-0.05, 0.20, 6)
+                sensitivity_rows = []
+                for point in growth_points:
+                    annual_sales_projection = base_sales * ((1 + point) ** 12)
+                    annual_profit_projection = annual_sales_projection * gross_margin_pct
+                    sensitivity_rows.append(
+                        {
+                            "growth_pct": point * 100,
+                            "annual_profit": annual_profit_projection,
+                        }
+                    )
+                sensitivity_df = pd.DataFrame(sensitivity_rows)
+                chart = alt.Chart(sensitivity_df).mark_line(point=True).encode(
+                    x=alt.X("growth_pct:Q", title="成長率 (%)"),
+                    y=alt.Y("annual_profit:Q", title="年間利益"),
+                    tooltip=[
+                        alt.Tooltip("growth_pct", title="成長率", format=".1f"),
+                        alt.Tooltip("annual_profit", title="年間利益", format=",")
+                    ],
+                ).properties(height=280)
+                st.markdown("### 感度分析: 成長率と年間利益")
+                st.altair_chart(apply_altair_theme(chart), use_container_width=True)
+
+    with tabs[2]:
+        st.header("シナリオ比較")
+        scenarios = st.session_state.get("scenario_inputs", [])
+        if base_df is None or base_df.empty:
+            st.info("先にデータ入力タブで基礎データを設定してください。")
+            st.session_state["phase2_summary_df"] = None
+        elif not scenarios:
+            st.info("比較するシナリオを追加してください。")
+            st.session_state["phase2_summary_df"] = None
+        else:
+            total = len(scenarios)
+            progress = st.progress(0.0)
+            results: List[pd.DataFrame] = []
+            summaries: List[Dict[str, Any]] = []
+            sensitivity_frames: List[pd.DataFrame] = []
+            with st.spinner("シナリオを計算しています..."):
+                with ThreadPoolExecutor(max_workers=min(4, total)) as executor:
+                    futures = {
+                        executor.submit(run_scenario_projection, monthly_sales, scenario): scenario
+                        for scenario in scenarios
+                    }
+                    for idx, future in enumerate(as_completed(futures), start=1):
+                        scenario_name, projection_df, summary_row, sensitivity_df = future.result()
+                        results.append(projection_df)
+                        summaries.append(summary_row)
+                        if sensitivity_df is not None and not sensitivity_df.empty:
+                            sensitivity_frames.append(sensitivity_df)
+                        progress.progress(idx / total)
+            progress.empty()
+
+            if results:
+                combined_df = pd.concat(results, ignore_index=True)
+                st.session_state["scenario_results"] = combined_df
+                summary_df = pd.DataFrame(summaries)
+                st.session_state["phase2_summary_df"] = summary_df
+
+                st.markdown("### 年間売上・利益比較")
+                st.dataframe(
+                    summary_df.style.format(
+                        {
+                            "年間売上": "{:.0f}",
+                            "年間利益": "{:.0f}",
+                            "平均月次売上": "{:.0f}",
+                            "期末キャッシュ": "{:.0f}",
+                            "成長率(%)": "{:.1f}",
+                            "利益率(%)": "{:.1f}",
+                            "調達額": "{:.0f}",
+                        }
+                    )
+                )
+
+                sales_chart = alt.Chart(combined_df).mark_line().encode(
+                    x=alt.X("period:T", title="期間"),
+                    y=alt.Y("sales:Q", title="売上高"),
+                    color=alt.Color("scenario:N", title="シナリオ"),
+                    tooltip=[
+                        "scenario", "period_label", alt.Tooltip("sales", title="売上高", format=",")
+                    ],
+                ).properties(height=360)
+                st.altair_chart(apply_altair_theme(sales_chart), use_container_width=True)
+
+                if sensitivity_frames:
+                    sensitivity_combined = pd.concat(sensitivity_frames, ignore_index=True)
+                    sensitivity_chart = alt.Chart(sensitivity_combined).mark_line(point=True).encode(
+                        x=alt.X("margin:Q", title="利益率 (%)"),
+                        y=alt.Y("annual_profit:Q", title="年間利益"),
+                        color=alt.Color("scenario:N", title="シナリオ"),
+                        tooltip=[
+                            "scenario",
+                            alt.Tooltip("margin", title="利益率", format=".1f"),
+                            alt.Tooltip("annual_profit", title="年間利益", format=",")
+                        ],
+                    ).properties(height=320)
+                    st.markdown("### 感度分析: 利益率別の年間利益")
+                    st.altair_chart(apply_altair_theme(sensitivity_chart), use_container_width=True)
+            else:
+                st.info("シナリオ計算結果を取得できませんでした。")
+                st.session_state["phase2_summary_df"] = None
+
+    with tabs[3]:
+        st.header("レポート出力")
+        scenario_results = st.session_state.get("scenario_results")
+        summary_df = st.session_state.get("phase2_summary_df")
+        swot = st.session_state.get("phase2_swot")
+        benchmark_df = st.session_state.get("phase2_benchmark")
+
+        if scenario_results is None or scenario_results.empty:
+            st.info("シナリオ比較を実行するとレポートを出力できます。")
+        else:
+            report_text = generate_phase2_report(summary_df, swot, benchmark_df)
+            st.session_state["phase2_report_summary"] = report_text
+            st.download_button(
+                "PDF出力 (テキスト)",
+                report_text,
+                file_name="scenario_report.txt",
+                mime="text/plain",
+            )
+
+            excel_buffer = io.BytesIO()
+            with pd.ExcelWriter(excel_buffer, engine="xlsxwriter") as writer:
+                scenario_results.to_excel(writer, sheet_name="scenarios", index=False)
+                if summary_df is not None:
+                    summary_df.to_excel(writer, sheet_name="summary", index=False)
+                if benchmark_df is not None:
+                    benchmark_df.to_excel(writer, sheet_name="benchmark", index=False)
+            st.download_button(
+                "Excel出力",
+                excel_buffer.getvalue(),
+                file_name="scenario_report.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+
+            st.markdown("#### レポートサマリー")
+            st.text(report_text)
+
+
 def render_sidebar_upload_expander(
     label: str,
     *,
@@ -4993,7 +5675,18 @@ def render_sidebar_upload_expander(
 
 
 def main() -> None:
-    inject_mckinsey_style()
+    init_phase2_session_state()
+
+    default_theme_mode = st.session_state.get("ui_theme_mode", "dark")
+    dark_mode = st.sidebar.toggle(
+        "ダークテーマ",
+        value=(default_theme_mode == "dark"),
+        key="ui_theme_toggle",
+        help="ライトテーマに切り替えると背景が明るい配色になります。",
+    )
+    st.session_state["ui_theme_mode"] = "dark" if dark_mode else "light"
+
+    inject_mckinsey_style(dark_mode=dark_mode)
 
     render_intro_section()
 
@@ -6394,6 +7087,10 @@ def main() -> None:
                 )
             else:
                 st.caption("リピート顧客の平均売上を算出できなかったため、金額の試算は参考値です。")
+
+    elif selected_nav_key == "scenario":
+        st.subheader("シナリオ分析")
+        render_scenario_analysis_section(merged_df, subscription_df)
 
     elif selected_nav_key == "data":
         st.subheader("データアップロード/管理")
