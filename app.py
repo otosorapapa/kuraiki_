@@ -305,7 +305,18 @@ WARNING_COLOR = "#D08700"
 ERROR_COLOR = "#C62828"
 TEXT_COLOR = "#1A1A1A"
 MUTED_TEXT_COLOR = "#6B7280"
-APP_FONT_STACK = "'Inter', 'Source Sans 3', 'Noto Sans JP', sans-serif"
+MCKINSEY_FONT_STACK = (
+    "'Inter', 'Inter var', 'Source Sans 3', '-apple-system', 'BlinkMacSystemFont', "
+    "'Segoe UI', 'Helvetica Neue', 'Arial', 'Noto Sans JP', sans-serif"
+)
+ALT_FONT_FAMILY = (
+    "'Source Sans 3', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', "
+    "'Helvetica Neue', 'Arial', 'Noto Sans JP', sans-serif"
+)
+NUMERIC_FONT_STACK = (
+    "'Inter Tight', 'Inter', 'Inter var', 'Source Sans 3', '-apple-system', "
+    "'BlinkMacSystemFont', 'Segoe UI', 'Helvetica Neue', 'Arial', 'Noto Sans JP', sans-serif"
+)
 MONO_FONT_STACK = "'Roboto Mono', 'Source Code Pro', monospace"
 
 SALES_SERIES_COLOR = PRIMARY_COLOR
@@ -345,13 +356,13 @@ def apply_chart_theme(fig):
     """デザイン・トークンに基づいたPlotly共通スタイルを適用する。"""
 
     fig.update_layout(
-        font=dict(family=APP_FONT_STACK, color=TEXT_COLOR),
-        title=dict(font=dict(size=18, color=TEXT_COLOR, family=APP_FONT_STACK)),
+        font=dict(family=MCKINSEY_FONT_STACK, color=TEXT_COLOR),
+        title=dict(font=dict(size=18, color=TEXT_COLOR, family=MCKINSEY_FONT_STACK)),
         legend=dict(bgcolor="rgba(0,0,0,0)", font=dict(size=12, color=TEXT_COLOR)),
         plot_bgcolor="rgba(0,0,0,0)",
         paper_bgcolor="rgba(0,0,0,0)",
         margin=dict(l=48, r=36, t=60, b=48),
-        hoverlabel=dict(font=dict(family=APP_FONT_STACK, color=TEXT_COLOR)),
+        hoverlabel=dict(font=dict(family=MCKINSEY_FONT_STACK, color=TEXT_COLOR)),
         colorway=PLOTLY_COLORWAY,
     )
     fig.update_xaxes(
@@ -376,16 +387,16 @@ def apply_altair_theme(chart: alt.Chart) -> alt.Chart:
 
     return (
         chart.configure_axis(
-            labelFont=APP_FONT_STACK,
-            titleFont=APP_FONT_STACK,
+            labelFont=MCKINSEY_FONT_STACK,
+            titleFont=MCKINSEY_FONT_STACK,
             labelColor=MUTED_TEXT_COLOR,
             titleColor=TEXT_COLOR,
             gridColor="rgba(11,31,59,0.1)",
             domainColor="rgba(11,31,59,0.18)",
         )
         .configure_legend(
-            titleFont=APP_FONT_STACK,
-            labelFont=APP_FONT_STACK,
+            titleFont=MCKINSEY_FONT_STACK,
+            labelFont=MCKINSEY_FONT_STACK,
             labelColor=TEXT_COLOR,
             titleColor=MUTED_TEXT_COLOR,
             orient="top",
@@ -393,8 +404,8 @@ def apply_altair_theme(chart: alt.Chart) -> alt.Chart:
             symbolSize=120,
         )
         .configure_view(strokeOpacity=0)
-        .configure_title(font=APP_FONT_STACK, color=TEXT_COLOR, fontSize=18)
-        .configure_mark(font=APP_FONT_STACK)
+        .configure_title(font=MCKINSEY_FONT_STACK, color=TEXT_COLOR, fontSize=18)
+        .configure_mark(font=MCKINSEY_FONT_STACK)
     )
 
 
@@ -414,12 +425,14 @@ def inject_design_tokens() -> None:
             --background-color: {BACKGROUND_COLOR};
             --text-color: {TEXT_COLOR};
             --muted-text-color: {MUTED_TEXT_COLOR};
-            --font-family: {APP_FONT_STACK};
+            --font-family: {MCKINSEY_FONT_STACK};
+            --alt-font-family: {ALT_FONT_FAMILY};
+            --numeric-font-family: {NUMERIC_FONT_STACK};
         }}
         html, body, [data-testid="stAppViewContainer"] {{
             background-color: var(--background-color);
             color: var(--text-color);
-            font-family: {APP_FONT_STACK};
+            font-family: var(--font-family);
         }}
         main .block-container {{
             max-width: 1200px;
@@ -475,6 +488,9 @@ def inject_design_tokens() -> None:
             font-size: 1.3rem;
             font-weight: 700;
             color: var(--primary-color);
+            font-family: var(--numeric-font-family);
+            font-variant-numeric: tabular-nums;
+            font-feature-settings: 'tnum';
         }}
         .kpi-strip__delta {{
             font-size: 0.85rem;
@@ -503,7 +519,9 @@ def inject_design_tokens() -> None:
             box-shadow: 0 12px 24px rgba(11,31,59,0.05);
         }}
         div[data-testid="stMetricValue"] {{
-            font-family: {MONO_FONT_STACK};
+            font-family: var(--numeric-font-family);
+            font-variant-numeric: tabular-nums;
+            font-feature-settings: 'tnum';
             color: var(--primary-color);
         }}
         div[data-testid="stMetricDelta"] {{
