@@ -5922,6 +5922,9 @@ def render_sidebar_upload_expander(
 def main() -> None:
     init_phase2_session_state()
 
+    if st.session_state.pop("pending_enable_sample_data", False):
+        st.session_state["use_sample_data_checkbox"] = True
+
     onboarding_container = st.sidebar.container()
 
     if "use_sample_data_checkbox" not in st.session_state:
@@ -6173,7 +6176,7 @@ def main() -> None:
         )
 
         def _enable_sample_data() -> None:
-            st.session_state["use_sample_data_checkbox"] = True
+            st.session_state["pending_enable_sample_data"] = True
             trigger_rerun()
 
         def _navigate_to_upload() -> None:
