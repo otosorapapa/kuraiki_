@@ -295,44 +295,43 @@ TUTORIAL_INDEX: List[Dict[str, Any]] = [
 ]
 
 
-PRIMARY_NAVY = "#0B1F33"
-PRIMARY_NAVY_ALT = "#123A66"
-SECONDARY_SLATE = "#5B6B82"
-SECONDARY_SKY = "#E6ECF4"
-NEUTRAL_STEEL = "#8FA5C9"
-ACCENT_BLUE = "#1E88E5"
-ACCENT_BLUE_STRONG = "#15579B"
-ACCENT_ORANGE = "#FF7A45"
-ACCENT_ORANGE_STRONG = "#C24C1D"
+PRIMARY_COLOR = "#0B1F3B"
+SECONDARY_COLOR = "#5A6B7A"
+ACCENT_COLOR = "#1E88E5"
+BACKGROUND_COLOR = "#F7F8FA"
+SURFACE_COLOR = "#FFFFFF"
 SUCCESS_COLOR = "#2E7D32"
-ERROR_COLOR = "#D32F2F"
-INK_INVERSE = "#F5F8FF"
-INK_MUTED = "#C7D3E7"
-MCKINSEY_FONT_STACK = (
-    "'Noto Sans JP', 'Hiragino Sans', 'Segoe UI', 'Helvetica Neue', sans-serif"
-)
-ALT_FONT_FAMILY = "Noto Sans JP"
-SALES_SERIES_COLOR = "#1E88E5"
-GROSS_SERIES_COLOR = "#00796B"
-INVENTORY_SERIES_COLOR = "#F9A825"
-CASH_SERIES_COLOR = "#3949AB"
-YOY_SERIES_COLOR = SECONDARY_SLATE
-BASELINE_SERIES_COLOR = "#6D6D6D"
+WARNING_COLOR = "#D08700"
+ERROR_COLOR = "#C62828"
+TEXT_COLOR = "#1A1A1A"
+MUTED_TEXT_COLOR = "#6B7280"
+APP_FONT_STACK = "'Inter', 'Source Sans 3', 'Noto Sans JP', sans-serif"
+MONO_FONT_STACK = "'Roboto Mono', 'Source Code Pro', monospace"
+
+SALES_SERIES_COLOR = PRIMARY_COLOR
+GROSS_SERIES_COLOR = ACCENT_COLOR
+OPERATING_SERIES_COLOR = "#4F9EE3"
+INVENTORY_SERIES_COLOR = "#0B7BCE"
+CASH_SERIES_COLOR = ACCENT_COLOR
+YOY_SERIES_COLOR = SECONDARY_COLOR
+BASELINE_SERIES_COLOR = "#94A3B8"
+
 CF_COLOR_MAPPING = {
     "営業CF": SALES_SERIES_COLOR,
-    "投資CF": ACCENT_ORANGE,
+    "投資CF": YOY_SERIES_COLOR,
     "財務CF": GROSS_SERIES_COLOR,
-    "返済": YOY_SERIES_COLOR,
+    "返済": WARNING_COLOR,
 }
+
 PLOTLY_COLORWAY = [
     SALES_SERIES_COLOR,
     GROSS_SERIES_COLOR,
-    INVENTORY_SERIES_COLOR,
+    OPERATING_SERIES_COLOR,
     YOY_SERIES_COLOR,
-    ACCENT_ORANGE,
+    SUCCESS_COLOR,
 ]
 
-HEATMAP_BLUE_SCALE = [[0.0, "#E3F2FD"], [0.5, "#64B5F6"], [1.0, "#0D47A1"]]
+HEATMAP_BLUE_SCALE = [[0.0, "#E3F2FD"], [0.5, "#64B5F6"], [1.0, PRIMARY_COLOR]]
 
 
 KGI_TARGETS = {
@@ -343,20 +342,32 @@ KGI_TARGETS = {
 
 
 def apply_chart_theme(fig):
-    """マッキンゼー風の配色と余白に合わせてPlotly図を整える。"""
+    """デザイン・トークンに基づいたPlotly共通スタイルを適用する。"""
 
     fig.update_layout(
-        font=dict(family=MCKINSEY_FONT_STACK, color="#0F1E2E"),
-        title=dict(font=dict(size=18, color="#0F1E2E", family=MCKINSEY_FONT_STACK)),
-        legend=dict(bgcolor="rgba(0,0,0,0)", font=dict(size=12)),
+        font=dict(family=APP_FONT_STACK, color=TEXT_COLOR),
+        title=dict(font=dict(size=18, color=TEXT_COLOR, family=APP_FONT_STACK)),
+        legend=dict(bgcolor="rgba(0,0,0,0)", font=dict(size=12, color=TEXT_COLOR)),
         plot_bgcolor="rgba(0,0,0,0)",
         paper_bgcolor="rgba(0,0,0,0)",
         margin=dict(l=48, r=36, t=60, b=48),
-        hoverlabel=dict(font=dict(family=MCKINSEY_FONT_STACK)),
+        hoverlabel=dict(font=dict(family=APP_FONT_STACK, color=TEXT_COLOR)),
         colorway=PLOTLY_COLORWAY,
     )
-    fig.update_xaxes(showgrid=True, gridcolor="rgba(11,31,51,0.08)")
-    fig.update_yaxes(showgrid=True, gridcolor="rgba(11,31,51,0.08)")
+    fig.update_xaxes(
+        showgrid=True,
+        gridcolor="rgba(11,31,59,0.08)",
+        linecolor="rgba(11,31,59,0.2)",
+        tickfont=dict(color=MUTED_TEXT_COLOR),
+        title_font=dict(color=MUTED_TEXT_COLOR),
+    )
+    fig.update_yaxes(
+        showgrid=True,
+        gridcolor="rgba(11,31,59,0.08)",
+        linecolor="rgba(11,31,59,0.2)",
+        tickfont=dict(color=MUTED_TEXT_COLOR),
+        title_font=dict(color=MUTED_TEXT_COLOR),
+    )
     return fig
 
 
@@ -365,1094 +376,247 @@ def apply_altair_theme(chart: alt.Chart) -> alt.Chart:
 
     return (
         chart.configure_axis(
-            labelFont=ALT_FONT_FAMILY,
-            titleFont=ALT_FONT_FAMILY,
-            labelColor="#0F1E2E",
-            titleColor="#0F1E2E",
-            gridColor="rgba(11,31,51,0.12)",
-            domainColor="rgba(11,31,51,0.18)",
+            labelFont=APP_FONT_STACK,
+            titleFont=APP_FONT_STACK,
+            labelColor=MUTED_TEXT_COLOR,
+            titleColor=TEXT_COLOR,
+            gridColor="rgba(11,31,59,0.1)",
+            domainColor="rgba(11,31,59,0.18)",
         )
         .configure_legend(
-            titleFont=ALT_FONT_FAMILY,
-            labelFont=ALT_FONT_FAMILY,
-            labelColor="#0F1E2E",
-            titleColor="#0F1E2E",
+            titleFont=APP_FONT_STACK,
+            labelFont=APP_FONT_STACK,
+            labelColor=TEXT_COLOR,
+            titleColor=MUTED_TEXT_COLOR,
             orient="top",
             direction="horizontal",
             symbolSize=120,
         )
         .configure_view(strokeOpacity=0)
-        .configure_title(font=ALT_FONT_FAMILY, color="#0F1E2E", fontSize=18)
-        .configure_mark(font=ALT_FONT_FAMILY)
+        .configure_title(font=APP_FONT_STACK, color=TEXT_COLOR, fontSize=18)
+        .configure_mark(font=APP_FONT_STACK)
     )
 
 
-def inject_mckinsey_style() -> None:
-    """60-30-10のカラーパレットとタイポグラフィをアプリ全体に適用する。"""
+def inject_design_tokens() -> None:
+    """デザイン・トークンと共通スタイルをアプリに適用する。"""
 
     st.markdown(
         f"""
         <style>
         :root {{
-            --color-primary: {PRIMARY_NAVY};
-            --color-primary-alt: {PRIMARY_NAVY_ALT};
-            --color-accent: {ACCENT_BLUE};
-            --color-accent-strong: {ACCENT_BLUE_STRONG};
-            --color-alert: {ACCENT_ORANGE};
-            --color-alert-strong: {ACCENT_ORANGE_STRONG};
-            --secondary-surface: {SECONDARY_SKY};
-            --surface-elevated: #ffffff;
-            --surface-contrast: rgba(255, 255, 255, 0.08);
-            --ink-base: #1A2433;
-            --ink-strong: #0F1E2E;
-            --ink-subtle: #5B6A82;
-            --ink-inverse: {INK_INVERSE};
-            --ink-muted: {INK_MUTED};
-            --focus-outline: rgba(42, 134, 255, 0.45);
+            --primary-color: {PRIMARY_COLOR};
+            --accent-color: {ACCENT_COLOR};
+            --success-color: {SUCCESS_COLOR};
+            --warning-color: {WARNING_COLOR};
+            --error-color: {ERROR_COLOR};
+            --surface-color: {SURFACE_COLOR};
+            --background-color: {BACKGROUND_COLOR};
+            --text-color: {TEXT_COLOR};
+            --muted-text-color: {MUTED_TEXT_COLOR};
+            --font-family: {APP_FONT_STACK};
         }}
-
-        html, body {{
-            font-family: {MCKINSEY_FONT_STACK};
-            color: var(--ink-inverse);
-            line-height: 1.45;
-            background-color: var(--color-primary);
-            background-image: linear-gradient(180deg, #0B1F33 0%, #123A66 60%, #0B1F33 100%);
-            min-height: 100%;
+        html, body, [data-testid="stAppViewContainer"] {{
+            background-color: var(--background-color);
+            color: var(--text-color);
+            font-family: {APP_FONT_STACK};
         }}
-
-        a {{
-            color: #B8D4FF;
-            font-weight: 600;
-            text-decoration: underline;
-        }}
-
-        a:hover {{
-            color: #E0ECFF;
-        }}
-
-        .surface-card a,
-        .form-section a,
-        .search-card a,
-        .stApp main div[data-testid="stDataFrame"] a {{
-            color: var(--color-accent-strong);
-        }}
-
-        .surface-card a:hover,
-        .form-section a:hover,
-        .search-card a:hover,
-        .stApp main div[data-testid="stDataFrame"] a:hover {{
-            color: #174A9C;
-        }}
-
-        a:focus {{
-            outline: 3px solid var(--focus-outline);
-            outline-offset: 2px;
-        }}
-
         main .block-container {{
-            max-width: 1220px;
-            padding: 2.2rem 1.8rem 3rem;
-            color: var(--ink-inverse);
+            max-width: 1200px;
+            padding: 2rem 2.5rem 3rem;
         }}
-
-        .stAppViewContainer {{
-            padding-top: 0;
-        }}
-
-        .stApp {{
-            background: linear-gradient(180deg, rgba(11,31,51,0.98) 0%, rgba(18,58,102,0.94) 60%, rgba(230,236,244,0.35) 100%);
-            color: var(--ink-inverse);
-            font-family: {MCKINSEY_FONT_STACK};
-        }}
-
-        p, li, span {{
-            font-size: 15px;
-            line-height: 1.45;
-        }}
-
-        h1, h2, h3, h4 {{
-            font-weight: 700;
-            letter-spacing: 0.02em;
-            line-height: 1.35;
-            color: var(--ink-inverse);
-        }}
-
-        h2 {{
-            margin-top: 2rem;
-        }}
-
-        h3 {{
-            margin-top: 1.5rem;
-        }}
-
-        .surface-card h1,
-        .surface-card h2,
-        .surface-card h3,
-        .surface-card h4,
-        .form-section h1,
-        .form-section h2,
-        .form-section h3,
-        .form-section h4 {{
-            color: var(--ink-strong);
-        }}
-
-        .surface-card p,
-        .surface-card li,
-        .surface-card span,
-        .form-section p,
-        .form-section li,
-        .form-section span {{
-            color: var(--ink-base);
-        }}
-
-        section[data-testid="stSidebar"] {{
-            background: linear-gradient(180deg, #F7F9FC 0%, #FFFFFF 100%);
-            color: var(--ink-strong);
-            border-right: 1px solid rgba(11,31,51,0.08);
-        }}
-
-        section[data-testid="stSidebar"] .block-container {{
-            padding-top: 2.4rem;
-        }}
-
-        section[data-testid="stSidebar"] * {{
-            color: var(--ink-base);
-        }}
-
-        section[data-testid="stSidebar"] h1,
-        section[data-testid="stSidebar"] h2,
-        section[data-testid="stSidebar"] h3,
-        section[data-testid="stSidebar"] h4 {{
-            color: var(--ink-strong);
-        }}
-
-        section[data-testid="stSidebar"] a {{
-            color: #1E5CC3;
-        }}
-
-        section[data-testid="stSidebar"] a:hover {{
-            color: #0F1E2E;
-        }}
-
-        section[data-testid="stSidebar"] input,
-        section[data-testid="stSidebar"] select,
-        section[data-testid="stSidebar"] textarea {{
-            background: #FFFFFF;
-            border-radius: 0.65rem;
-            border: 1px solid rgba(11,31,51,0.18);
-            color: var(--ink-base);
-        }}
-
-        section[data-testid="stSidebar"] input:focus,
-        section[data-testid="stSidebar"] select:focus,
-        section[data-testid="stSidebar"] textarea:focus {{
-            border-color: rgba(30,92,195,0.55);
-            box-shadow: 0 0 0 2px rgba(30,92,195,0.25);
-        }}
-
-        section[data-testid="stSidebar"] input::placeholder,
-        section[data-testid="stSidebar"] textarea::placeholder {{
-            color: rgba(17,58,102,0.5);
-        }}
-
-        section[data-testid="stSidebar"] .stButton>button,
-        section[data-testid="stSidebar"] .stDownloadButton>button {{
-            border-radius: 0.6rem;
-            border: 1px solid rgba(30,92,195,0.35);
-            background: linear-gradient(135deg, #2A86FF, #1E5CC3);
-            color: #ffffff;
-            box-shadow: 0 8px 20px rgba(30,92,195,0.25);
-        }}
-
-        section[data-testid="stSidebar"] .stButton>button:hover,
-        section[data-testid="stSidebar"] .stDownloadButton>button:hover {{
-            background: linear-gradient(135deg, #1E5CC3, #174A9C);
-        }}
-
-        section[data-testid="stSidebar"] div[data-testid="stExpander"] {{
-            border: 1px solid rgba(11,31,51,0.1);
-            border-radius: 0.95rem;
-            background: #FFFFFF;
-            box-shadow: 0 12px 26px rgba(15,30,46,0.06);
-            margin-bottom: 0.85rem;
-            overflow: hidden;
-        }}
-
-        section[data-testid="stSidebar"] div[data-testid="stExpander"] > div:first-child {{
-            padding: 0.9rem 1rem;
-        }}
-
-        section[data-testid="stSidebar"] div[data-testid="stExpander"] > div:nth-child(2) {{
-            padding: 0 1rem 1rem;
-        }}
-
-        section[data-testid="stSidebar"] div[data-testid="stExpander"] summary {{
-            font-weight: 700;
-            color: var(--ink-strong);
-        }}
-
-        .sidebar-section {{
-            background: #FFFFFF;
-            border-radius: 0.95rem;
-            border: 1px solid rgba(11,31,51,0.08);
-            padding: 1rem 1.1rem;
-            box-shadow: 0 10px 22px rgba(15,30,46,0.05);
-            margin-bottom: 1rem;
-        }}
-
-        .sidebar-section--emphasis {{
-            background: linear-gradient(135deg, rgba(42,134,255,0.12) 0%, rgba(18,58,102,0.08) 100%);
-            border-color: rgba(30,92,195,0.22);
-        }}
-
-        .sidebar-section__eyebrow {{
-            font-size: 0.7rem;
-            font-weight: 700;
-            letter-spacing: 0.08em;
-            text-transform: uppercase;
-            color: #1E5CC3;
-            margin-bottom: 0.25rem;
-        }}
-
-        .sidebar-section__title {{
-            font-size: 0.95rem;
-            font-weight: 600;
-            color: var(--ink-strong);
-            margin-bottom: 0.3rem;
-        }}
-
-        .sidebar-section__body {{
-            font-size: 0.85rem;
-            color: var(--ink-base);
-            margin-bottom: 0.5rem;
-        }}
-
-        .sidebar-section__status {{
-            display: inline-flex;
-            align-items: center;
-            gap: 0.3rem;
-            font-size: 0.8rem;
-            font-weight: 600;
-            padding: 0.3rem 0.65rem;
-            border-radius: 0.6rem;
-            background: rgba(30,92,195,0.14);
-            color: #1E5CC3;
-            margin-bottom: 0.6rem;
-        }}
-
-        .sidebar-subheading {{
-            font-size: 0.95rem;
-            font-weight: 700;
-            color: var(--ink-strong);
-            margin: 1.2rem 0 0.6rem;
-        }}
-
-        .sidebar-upload-card {{
-            display: grid;
-            grid-template-columns: auto 1fr;
-            gap: 0.75rem;
-            align-items: center;
-            background: #F4F7FB;
-            border: 1px dashed rgba(17,58,102,0.25);
-            border-radius: 0.85rem;
-            padding: 0.85rem 1rem;
-            margin-bottom: 0.6rem;
-        }}
-
-        .sidebar-upload-card__icons {{
-            display: flex;
-            flex-direction: column;
-            gap: 0.35rem;
-        }}
-
-        .sidebar-upload-card__icon {{
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            padding: 0.25rem 0.6rem;
-            border-radius: 0.6rem;
-            font-size: 0.72rem;
-            font-weight: 700;
-            letter-spacing: 0.05em;
-        }}
-
-        .sidebar-upload-card__icon--csv {{
-            background: rgba(30,92,195,0.16);
-            color: #1E5CC3;
-        }}
-
-        .sidebar-upload-card__icon--excel {{
-            background: rgba(26,140,76,0.16);
-            color: #1B7A4A;
-        }}
-
-        .sidebar-upload-card__title {{
-            font-weight: 700;
-            font-size: 0.95rem;
-            color: var(--ink-strong);
-        }}
-
-        .sidebar-upload-card__meta {{
-            font-size: 0.78rem;
-            color: var(--ink-subtle);
-            margin-top: 0.15rem;
-        }}
-
-        .sidebar-upload-card__desc {{
-            font-size: 0.85rem;
-            color: var(--ink-base);
-            margin: 0.45rem 0 0;
-        }}
-
-        section[data-testid="stSidebar"] .stFileUploader div[data-testid="stFileUploaderDropzone"] {{
-            background: #FFFFFF;
-            border: 1px dashed rgba(17,58,102,0.28);
-            border-radius: 0.9rem;
-        }}
-
-        section[data-testid="stSidebar"] .stFileUploader div[data-testid="stFileUploaderDropzone"] p {{
-            color: var(--ink-subtle);
-        }}
-
-        section[data-testid="stSidebar"] .stFileUploader div[data-testid="stFileUploaderDropzone"]:hover {{
-            border-color: rgba(30,92,195,0.45);
-        }}
-
-        .hero-panel {{
-            background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-alt) 100%);
-            color: var(--ink-inverse);
-            padding: 2.2rem 2.6rem;
-            border-radius: 1.25rem;
-            margin-bottom: 1.5rem;
-            box-shadow: 0 22px 55px rgba(11,31,51,0.28);
-        }}
-
-        .hero-title {{
-            font-size: 1.9rem;
-            margin-bottom: 0.6rem;
-        }}
-
-        .hero-subtitle {{
-            font-size: 1.05rem;
-            max-width: 760px;
-            opacity: 0.96;
-        }}
-
-        .hero-meta {{
-            margin-top: 1.2rem;
-            display: flex;
-            flex-wrap: wrap;
-            gap: 0.75rem;
-        }}
-
-        .hero-persona {{
-            margin-top: 1.4rem;
-            display: flex;
-            flex-wrap: wrap;
-            gap: 0.6rem;
-        }}
-
-        .hero-chip {{
-            display: inline-flex;
-            align-items: center;
-            background: rgba(255,255,255,0.88);
-            color: var(--color-primary);
-            padding: 0.3rem 0.85rem;
-            border-radius: 999px;
-            font-size: 0.85rem;
-            font-weight: 600;
-            letter-spacing: 0.01em;
-            gap: 0.35rem;
-            box-shadow: 0 8px 22px rgba(9,21,35,0.16);
-        }}
-
-        .hero-badge {{
-            display: inline-flex;
-            align-items: center;
-            padding: 0.35rem 0.85rem;
-            border-radius: 999px;
-            background: rgba(255,255,255,0.2);
-            font-size: 0.9rem;
-            letter-spacing: 0.02em;
-            color: var(--ink-inverse);
-            gap: 0.4rem;
-        }}
-
-        .hero-badge--accent {{
-            background: var(--color-accent-strong);
-            color: var(--ink-inverse);
-        }}
-
-        .hero-badge--alert {{
-            background: var(--color-alert-strong);
-            color: var(--ink-inverse);
-        }}
-
         .surface-card {{
-            background: var(--surface-elevated);
-            border-radius: 1rem;
-            padding: 1.6rem 1.8rem;
-            box-shadow: 0 16px 42px rgba(15,30,46,0.08);
-            border: 1px solid rgba(11,31,51,0.12);
-            margin-bottom: 1.8rem;
-            color: var(--ink-base);
+            background: var(--surface-color);
+            border-radius: 12px;
+            padding: 1.5rem;
+            border: 1px solid rgba(11,31,59,0.08);
+            box-shadow: 0 12px 24px rgba(11,31,59,0.05);
         }}
-
-        .kgi-grid {{
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-            gap: 1.2rem;
-            margin-bottom: 1.4rem;
-        }}
-
-        .kgi-card {{
-            position: relative;
-            padding: 1.4rem 1.6rem;
-            border-radius: 1.1rem;
-            background: linear-gradient(135deg, rgba(18,58,102,0.92) 0%, rgba(11,31,51,0.95) 70%);
-            color: var(--ink-inverse);
-            border: 1px solid rgba(255,255,255,0.08);
-            box-shadow: 0 22px 48px rgba(5,18,34,0.4);
-        }}
-
-        .kgi-card__title {{
-            font-size: 0.78rem;
-            letter-spacing: 0.12em;
-            text-transform: uppercase;
-            color: rgba(255,255,255,0.68);
-            margin-bottom: 0.75rem;
-        }}
-
-        .kgi-card__value {{
-            font-size: 1.95rem;
-            font-weight: 700;
-            margin-bottom: 0.4rem;
-        }}
-
-        .kgi-card__delta {{
-            font-size: 0.85rem;
-            font-weight: 600;
-            display: inline-flex;
-            align-items: center;
-            gap: 0.35rem;
-        }}
-
-        .kgi-card__delta--up {{
-            color: #8CE99A;
-        }}
-
-        .kgi-card__delta--down {{
-            color: #FFA8A8;
-        }}
-
-        .kgi-card__target {{
-            margin-top: 0.5rem;
-            font-size: 0.78rem;
-            letter-spacing: 0.02em;
-            color: rgba(255,255,255,0.78);
-        }}
-
-        .kgi-card__target--behind {{
-            color: #FFD166;
-        }}
-
-        .dashboard-meta {{
-            display: inline-flex;
-            flex-wrap: wrap;
-            gap: 0.5rem;
-            margin-bottom: 1.4rem;
-        }}
-
-        .dashboard-meta__chip {{
-            background: rgba(11,31,51,0.18);
-            color: var(--ink-inverse);
-            border-radius: 999px;
-            padding: 0.3rem 0.85rem;
-            font-size: 0.78rem;
-            font-weight: 600;
-            letter-spacing: 0.02em;
-        }}
-
-        .kpi-strip {{
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-            gap: 1rem;
-            margin-bottom: 1.8rem;
-        }}
-
-        .kpi-strip__card {{
-            background: var(--surface-elevated);
-            border-radius: 0.95rem;
-            border: 1px solid rgba(11,31,51,0.1);
-            padding: 1rem 1.2rem;
-            box-shadow: 0 14px 32px rgba(15,30,46,0.08);
-        }}
-
-        .kpi-strip__label {{
-            font-size: 0.75rem;
-            letter-spacing: 0.1em;
-            text-transform: uppercase;
-            font-weight: 700;
-            color: var(--ink-subtle);
-            margin-bottom: 0.35rem;
-        }}
-
-        .kpi-strip__value {{
-            font-size: 1.25rem;
-            font-weight: 700;
-            color: var(--ink-strong);
-        }}
-
-        .kpi-strip__delta {{
-            margin-top: 0.2rem;
-            font-size: 0.8rem;
-            font-weight: 600;
-            color: var(--ink-subtle);
-        }}
-
-        .kpi-strip__delta--up {{
-            color: #1E5CC3;
-        }}
-
-        .kpi-strip__delta--down {{
-            color: #C24C1D;
-        }}
-
         .chart-section {{
-            background: var(--surface-elevated);
-            border-radius: 1rem;
-            padding: 1.2rem 1.4rem;
-            border: 1px solid rgba(11,31,51,0.08);
-            box-shadow: 0 12px 30px rgba(15,30,46,0.06);
-            margin-bottom: 1.8rem;
+            background: var(--surface-color);
+            border-radius: 12px;
+            padding: 1.25rem 1.5rem;
+            border: 1px solid rgba(11,31,59,0.08);
+            box-shadow: 0 12px 28px rgba(11,31,59,0.05);
+            margin-bottom: 1.75rem;
         }}
-
         .chart-section__header {{
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 0.8rem;
+            margin-bottom: 0.75rem;
         }}
-
         .chart-section__title {{
             font-size: 1.05rem;
             font-weight: 700;
-            color: var(--ink-strong);
+            color: var(--text-color);
         }}
-
-        .detail-toolbar {{
+        .kpi-strip {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }}
+        .kpi-strip__card {{
+            background: var(--surface-color);
+            border-radius: 12px;
+            padding: 1rem 1.2rem;
+            border: 1px solid rgba(11,31,59,0.08);
+            box-shadow: 0 10px 20px rgba(11,31,59,0.05);
+        }}
+        .kpi-strip__label {{
+            font-size: 0.75rem;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--muted-text-color);
+            margin-bottom: 0.35rem;
+        }}
+        .kpi-strip__value {{
+            font-size: 1.3rem;
+            font-weight: 700;
+            color: var(--primary-color);
+        }}
+        .kpi-strip__delta {{
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--muted-text-color);
+        }}
+        .dashboard-meta {{
             display: flex;
-            justify-content: flex-end;
+            flex-wrap: wrap;
             gap: 0.5rem;
-            margin-bottom: 0.8rem;
+            margin-bottom: 1.2rem;
         }}
-
+        .dashboard-meta__chip {{
+            padding: 0.25rem 0.75rem;
+            border-radius: 999px;
+            background: rgba(11,31,59,0.08);
+            color: var(--text-color);
+            font-size: 0.8rem;
+            font-weight: 600;
+        }}
+        div[data-testid="stMetric"] {{
+            background: var(--surface-color);
+            border-radius: 12px;
+            padding: 1rem 1.25rem;
+            border: 1px solid rgba(11,31,59,0.1);
+            box-shadow: 0 12px 24px rgba(11,31,59,0.05);
+        }}
+        div[data-testid="stMetricValue"] {{
+            font-family: {MONO_FONT_STACK};
+            color: var(--primary-color);
+        }}
+        div[data-testid="stMetricDelta"] {{
+            font-weight: 600;
+        }}
+        .status-pill {{
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            padding: 0.25rem 0.65rem;
+            border-radius: 999px;
+            font-size: 0.8rem;
+            font-weight: 600;
+        }}
+        .status-pill--ok {{
+            background: rgba(46,125,50,0.15);
+            color: var(--success-color);
+        }}
+        .status-pill--warning {{
+            background: rgba(208,135,0,0.16);
+            color: var(--warning-color);
+        }}
+        .status-pill--error {{
+            background: rgba(198,40,40,0.16);
+            color: var(--error-color);
+        }}
         .data-status-grid {{
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
             gap: 1rem;
-            margin-top: 1.2rem;
+            margin-top: 1.25rem;
         }}
-
         .data-status-card {{
-            background: var(--surface-elevated);
-            border-radius: 1rem;
-            border: 1px solid rgba(11,31,51,0.08);
+            background: var(--surface-color);
+            border-radius: 12px;
             padding: 1.1rem 1.3rem;
-            box-shadow: 0 12px 28px rgba(15,30,46,0.06);
+            border: 1px solid rgba(11,31,59,0.08);
+            box-shadow: 0 12px 24px rgba(11,31,59,0.05);
         }}
-
-        .data-status-card__title {{
-            font-size: 0.95rem;
-            font-weight: 700;
-            color: var(--ink-strong);
-            margin-bottom: 0.4rem;
+        section[data-testid="stSidebar"] {{
+            background: var(--surface-color);
+            color: var(--text-color);
+            border-right: 1px solid rgba(11,31,59,0.08);
         }}
-
-        .data-status-card__meta {{
-            font-size: 0.75rem;
-            color: var(--ink-subtle);
-            margin-bottom: 0.6rem;
+        section[data-testid="stSidebar"] .sidebar-section {{
+            background: var(--surface-color);
+            border-radius: 12px;
+            border: 1px solid rgba(11,31,59,0.08);
+            padding: 1rem 1.1rem;
+            box-shadow: 0 8px 16px rgba(11,31,59,0.04);
+            margin-bottom: 1rem;
         }}
-
-        .data-status-card__body {{
-            font-size: 0.85rem;
-            color: var(--ink-base);
-            margin-bottom: 0.7rem;
-            line-height: 1.4;
-        }}
-
-        .data-status-card__status {{
+        section[data-testid="stSidebar"] .sidebar-section__status {{
             display: inline-flex;
             align-items: center;
-            gap: 0.35rem;
-            font-weight: 600;
-            font-size: 0.78rem;
-            border-radius: 999px;
-            padding: 0.2rem 0.7rem;
-        }}
-
-        .data-status-card__status--ok {{
-            background: rgba(55, 178, 77, 0.16);
-            color: #2F8F46;
-        }}
-
-        .data-status-card__status--warning {{
-            background: rgba(255, 170, 64, 0.18);
-            color: #C24C1D;
-        }}
-
-        .data-status-card__status--error {{
-            background: rgba(255, 92, 92, 0.2);
-            color: #D1435B;
-        }}
-
-        .data-status-card__footnote {{
-            font-size: 0.75rem;
-            color: var(--ink-subtle);
-            margin-top: 0.6rem;
-        }}
-
-        .bsc-card {{
-            background: linear-gradient(180deg, rgba(255,255,255,0.96) 0%, rgba(242,246,255,0.92) 100%);
-            border-radius: 1rem;
-            padding: 1.2rem 1.4rem;
-            box-shadow: 0 18px 48px rgba(15,30,46,0.18);
-            border: 1px solid rgba(11,31,51,0.08);
-            color: var(--ink-base);
-        }}
-
-        .bsc-card__title {{
-            font-size: 0.95rem;
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 0.08em;
-            color: var(--ink-strong);
-            margin-bottom: 0.35rem;
-        }}
-
-        .bsc-card__subtitle {{
-            font-size: 0.8rem;
-            color: var(--ink-subtle);
-            margin-bottom: 0.75rem;
-        }}
-
-        .bsc-card .stMetric {{
-            margin-bottom: 0.55rem;
-        }}
-
-        .bsc-card .stMetric label {{
-            color: var(--ink-base);
-            font-size: 0.85rem;
-        }}
-
-        .bsc-card .stMetric div[data-testid="stMetricValue"] {{
-            color: var(--ink-strong);
-            font-size: 1.55rem;
-        }}
-
-        .bsc-card .stMetric div[data-testid="stMetricDelta"] {{
-            font-size: 0.85rem;
-        }}
-
-        .form-section {{
-            background: var(--surface-elevated);
-            border-radius: 1rem;
-            padding: 1.4rem 1.6rem;
-            border: 1px solid rgba(11,31,51,0.1);
-            box-shadow: 0 12px 30px rgba(15,30,46,0.06);
-            margin-bottom: 1.6rem;
-            display: flex;
-            flex-direction: column;
-            gap: 1rem;
-            color: var(--ink-base);
-        }}
-
-        .form-section--secondary {{
-            background: rgba(230,236,244,0.95);
-            border-color: rgba(11,31,51,0.08);
-            box-shadow: none;
-        }}
-
-        .form-section__title {{
-            font-size: 1.1rem;
-            font-weight: 700;
-            color: var(--ink-strong);
-        }}
-
-        .form-section__description {{
-            font-size: 0.95rem;
-            color: var(--ink-subtle);
-            margin: 0;
-        }}
-
-        .form-section__status {{
-            display: inline-flex;
-            align-items: center;
-            padding: 0.2rem 0.65rem;
-            border-radius: 999px;
-            background: rgba(30,92,195,0.15);
-            color: var(--color-accent-strong);
-            font-size: 0.8rem;
-            font-weight: 600;
-            letter-spacing: 0.02em;
             gap: 0.3rem;
-        }}
-
-        .stepper {{
-            display: grid;
-            gap: 0.75rem;
-            margin: 1.2rem 0 2rem;
-        }}
-
-        .stepper__item {{
-            display: flex;
-            align-items: center;
-            gap: 1rem;
-            padding: 0.85rem 1.1rem;
-            border-radius: 0.95rem;
-            border: 1px solid rgba(11,31,51,0.18);
-            background: rgba(230,236,244,0.9);
-        }}
-
-        .stepper__item--active {{
-            border-color: rgba(30,92,195,0.5);
-            background: rgba(30,92,195,0.16);
-        }}
-
-        .stepper__item--done {{
-            border-color: rgba(11,31,51,0.18);
-            background: rgba(11,31,51,0.06);
-        }}
-
-        .stepper__index {{
-            width: 2rem;
-            height: 2rem;
-            border-radius: 999px;
-            background: var(--color-primary);
-            color: var(--ink-inverse);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-weight: 700;
-            font-size: 0.95rem;
-        }}
-
-        .stepper__item--active .stepper__index {{
-            background: var(--color-accent-strong);
-        }}
-
-        .stepper__body {{
-            flex: 1;
-        }}
-
-        .stepper__title {{
-            font-size: 1rem;
-            font-weight: 700;
-            color: var(--ink-strong);
-        }}
-
-        .stepper__desc {{
-            font-size: 0.9rem;
-            color: var(--ink-subtle);
-            margin-top: 0.2rem;
-        }}
-
-        .stepper__status {{
-            font-size: 0.85rem;
-            font-weight: 600;
-            color: var(--ink-subtle);
-        }}
-
-        .stApp main .stButton>button,
-        .stApp main .stDownloadButton>button {{
-            border-radius: 0.85rem;
-            padding: 0.75rem 1.4rem;
-            font-weight: 600;
-            background: var(--color-accent-strong);
-            border: 1px solid #123F7A;
-            color: var(--ink-inverse);
-            min-height: 48px;
-            box-shadow: 0 12px 28px rgba(30,92,195,0.25);
-        }}
-
-        .stApp main .stButton>button:hover,
-        .stApp main .stDownloadButton>button:hover {{
-            background: #174A9C;
-        }}
-
-        .stApp main .stButton>button:focus,
-        .stApp main .stDownloadButton>button:focus {{
-            outline: none;
-            box-shadow: 0 0 0 3px var(--focus-outline);
-        }}
-
-        .stApp main div[data-baseweb="input"] input,
-        .stApp main div[data-baseweb="textarea"] textarea,
-        .stApp main div[data-baseweb="select"] > div {{
-            border-radius: 0.75rem;
-            border: 1px solid rgba(11,31,51,0.18);
-            background: #ffffff;
-            color: var(--ink-strong);
-            min-height: 48px;
-            padding: 0.5rem 0.85rem;
-            font-size: 0.95rem;
-        }}
-
-        .stApp main div[data-baseweb="textarea"] textarea {{
-            min-height: 120px;
-        }}
-
-        .stApp main div[data-baseweb="input"] input:focus,
-        .stApp main div[data-baseweb="textarea"] textarea:focus,
-        .stApp main div[data-baseweb="select"]:focus-within > div {{
-            border-color: var(--color-accent-strong);
-            box-shadow: 0 0 0 3px rgba(30,92,195,0.25);
-        }}
-
-        .stApp main div[data-testid="stFileUploader"] section[data-testid="stFileUploaderDropzone"] {{
-            border-radius: 0.9rem;
-            border: 1px dashed rgba(11,31,51,0.3);
-            background: rgba(230,236,244,0.45);
-        }}
-
-        .stApp main div[data-testid="stFileUploader"] section[data-testid="stFileUploaderDropzone"] * {{
-            color: var(--ink-base);
-        }}
-
-        .stApp main div[data-testid="stDataFrame"] > div {{
-            border-radius: 0.85rem;
-            border: 1px solid rgba(11,31,51,0.12);
-            background: var(--surface-elevated);
-            color: var(--ink-base);
-        }}
-
-        .stApp main div[data-testid="stDataEditor"] {{
-            border-radius: 0.85rem;
-            border: 1px solid rgba(11,31,51,0.12);
-            padding: 0.5rem;
-            background: var(--surface-elevated);
-            color: var(--ink-base);
-        }}
-
-        @media (max-width: 960px) {{
-            main .block-container {{
-                padding: 1.6rem 1.1rem 2.6rem;
-            }}
-
-            .hero-panel {{
-                padding: 1.8rem 1.6rem;
-            }}
-
-            .hero-meta {{
-                flex-direction: column;
-                align-items: flex-start;
-            }}
-
-            .main-nav-block div[role="radiogroup"] {{
-                flex-direction: column;
-                align-items: stretch;
-            }}
-
-            .main-nav-block div[role="radiogroup"] label {{
-                width: 100%;
-                text-align: center;
-            }}
-
-            div[data-testid="column"] {{
-                width: 100% !important;
-                padding-right: 0 !important;
-            }}
-
-            .stepper__item {{
-                flex-direction: column;
-                align-items: flex-start;
-            }}
-
-            .stepper__status {{
-                margin-top: 0.35rem;
-            }}
-        }}
-
-        @media (max-width: 600px) {{
-            .surface-card {{
-                padding: 1.2rem 1.3rem;
-            }}
-
-            .form-section {{
-                padding: 1.1rem 1.2rem;
-            }}
-
-            .hero-title {{
-                font-size: 1.6rem;
-            }}
-
-            .stApp main .stButton>button,
-            .stApp main .stDownloadButton>button {{
-                width: 100%;
-            }}
-        }}
-
-        .main-nav-block div[role="radiogroup"] {{
-            gap: 0.75rem;
-            flex-wrap: wrap;
-        }}
-
-        .main-nav-block div[role="radiogroup"] label {{
-            border-radius: 999px;
-            padding: 0.35rem 0.9rem;
-            border: 1px solid rgba(15,30,46,0.16);
-            background: rgba(230,236,244,0.85);
-            font-weight: 600;
-            color: var(--ink-strong);
-        }}
-
-        .main-nav-block div[role="radiogroup"] label[aria-checked="true"] {{
-            background: var(--color-primary-alt);
-            color: var(--ink-inverse);
-            border-color: rgba(255,255,255,0.6);
-            box-shadow: 0 10px 24px rgba(12,50,90,0.35);
-        }}
-
-        .main-nav-block div[role="radiogroup"] label:hover {{
-            border-color: rgba(30,92,195,0.45);
-        }}
-
-        .breadcrumb-trail {{
-            color: var(--ink-muted);
-            margin-bottom: 1.2rem;
-            font-size: 0.9rem;
-        }}
-
-        .alert-banner {{
-            border-radius: 0.95rem;
-            padding: 1.1rem 1.3rem;
-            margin-bottom: 1.6rem;
-            border: 1px solid transparent;
-        }}
-
-        .alert-banner--warning {{
-            background: #FFF3E9;
-            border-color: #F0B08A;
-            color: #9A3A0B;
-        }}
-
-        .alert-banner--ok {{
-            background: #E3EDFF;
-            border-color: #9CB6F5;
-            color: #113E79;
-        }}
-
-        .alert-banner__title {{
-            font-weight: 700;
-            margin-bottom: 0.4rem;
-        }}
-
-        .alert-banner ul {{
-            margin: 0.2rem 0 0;
-            padding-left: 1.2rem;
-        }}
-
-        .search-card {{
-            padding-bottom: 1rem;
-        }}
-
-        .search-card .search-title {{
-            font-weight: 700;
-            font-size: 1.1rem;
-            color: var(--ink-strong);
-        }}
-
-        .search-card div[data-testid="stTextInput"] {{
-            margin-top: 0.6rem;
-        }}
-
-        .search-card input {{
-            border-radius: 0.75rem;
-            border: 1px solid rgba(11,31,51,0.18);
-            padding: 0.6rem 0.9rem;
-            background: #ffffff;
-            color: var(--ink-strong);
-        }}
-
-        .search-card input:focus {{
-            border-color: var(--color-accent-strong);
-            box-shadow: 0 0 0 2px rgba(30,92,195,0.22);
-        }}
-
-        hr {{
-            border-color: #d8e1ef;
-        }}
-
-        div[data-testid="stMetric"] {{
-            background: var(--surface-elevated);
-            border-radius: 0.9rem;
-            padding: 1.1rem;
-            border: 1px solid rgba(11,31,51,0.12);
-            box-shadow: 0 12px 30px rgba(15,30,46,0.05);
-            color: var(--ink-base);
-        }}
-
-        div[data-testid="stMetricLabel"] {{
-            color: var(--ink-subtle);
-            font-weight: 600;
-        }}
-
-        div[data-testid="stMetricValue"] {{
-            color: var(--ink-strong);
-            font-weight: 700;
-        }}
-
-        div[data-testid="stMetricDelta"] {{
-            color: var(--color-accent-strong);
-            font-weight: 600;
-        }}
-
-        .status-pill {{
-            display: inline-flex;
-            align-items: center;
             padding: 0.25rem 0.6rem;
             border-radius: 999px;
+            background: rgba(30,136,229,0.12);
+            color: var(--accent-color);
             font-size: 0.8rem;
             font-weight: 600;
-            letter-spacing: 0.02em;
-            margin-bottom: 0.35rem;
-            gap: 0.3rem;
         }}
-
-        .status-pill--ok {{
-            background: #E0EDFF;
-            color: #113E79;
+        .main-nav-block div[role="radiogroup"] {{
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.6rem;
         }}
-
-        .status-pill--warning {{
-            background: #FFF4D7;
-            color: #7A4E00;
-        }}
-
-        .status-pill--error {{
-            background: #FFE3D6;
-            color: #7A1C00;
-        }}
-
-        section[data-testid="stSidebar"] .sidebar-meta {{
-            font-size: 0.8rem;
-            color: var(--ink-subtle);
-            margin-bottom: 0.75rem;
-        }}
-
-        section[data-testid="stSidebar"] .sidebar-meta--status {{
-            color: #1E5CC3;
+        .main-nav-block div[role="radiogroup"] label {{
+            padding: 0.45rem 1.1rem;
+            border-radius: 999px;
+            border: 1px solid rgba(11,31,59,0.16);
+            background: rgba(255,255,255,0.85);
             font-weight: 600;
+            color: var(--text-color);
         }}
-
-        .stAlert>div {{
-            border-radius: 0.95rem;
+        .main-nav-block div[role="radiogroup"] label[aria-checked="true"] {{
+            background: var(--primary-color);
+            color: #ffffff;
+            border-color: rgba(11,31,59,0.35);
+        }}
+        .search-card input {{
+            border-radius: 10px;
+            border: 1px solid rgba(11,31,59,0.18);
+            padding: 0.6rem 0.9rem;
+        }}
+        .stApp main .stButton>button,
+        .stApp main .stDownloadButton>button {{
+            border-radius: 10px;
+            padding: 0.65rem 1.4rem;
+            font-weight: 600;
+            background: var(--accent-color);
+            color: #ffffff;
+            border: none;
+            box-shadow: 0 12px 24px rgba(30,136,229,0.2);
+        }}
+        .stApp main .stButton>button:hover,
+        .stApp main .stDownloadButton>button:hover {{
+            filter: brightness(0.95);
+        }}
+        @media (max-width: 900px) {{
+            main .block-container {{
+                padding: 1.6rem 1.2rem 2.6rem;
+            }}
+            .kpi-strip {{
+                grid-template-columns: 1fr;
+            }}
         }}
         </style>
         """,
         unsafe_allow_html=True,
     )
+
 
 
 def remember_last_uploaded_files(
@@ -3780,10 +2944,10 @@ def render_kpi_overview_tab(kpi_period_summary: pd.DataFrame) -> None:
     history["period_label"] = history["period_label"].astype(str)
 
     metric_configs = [
-        ("ltv", "LTV", "円", SALES_SERIES_COLOR, False),
+        ("ltv", "LTV", "円", ACCENT_COLOR, False),
         ("arpu", "ARPU", "円", GROSS_SERIES_COLOR, False),
-        ("repeat_rate", "リピート率", "％", ACCENT_BLUE, True),
-        ("churn_rate", "チャーン率", "％", ACCENT_ORANGE, True),
+        ("repeat_rate", "リピート率", "％", ACCENT_COLOR, True),
+        ("churn_rate", "チャーン率", "％", ERROR_COLOR, True),
     ]
     chart_columns = st.columns(2)
     for (metric, label, unit, color, is_percent), column in zip(metric_configs, chart_columns * 2):
@@ -3854,6 +3018,37 @@ def render_sales_tab(
     """売上タブの可視化と明細を描画する。"""
 
     if period_summary is not None and not period_summary.empty:
+        latest_row = period_summary.iloc[-1]
+        prev_row = period_summary.iloc[-2] if len(period_summary) > 1 else None
+        card_cols = st.columns(3)
+
+        latest_sales = float(latest_row.get("sales_amount", 0.0))
+        sales_delta = latest_row.get("sales_mom")
+        card_cols[0].metric(
+            "当期売上高",
+            f"{latest_sales:,.0f} 円",
+            delta=f"{sales_delta * 100:+.1f}%" if pd.notna(sales_delta) else "-",
+        )
+
+        latest_gross = float(latest_row.get("net_gross_profit", 0.0))
+        gross_delta = latest_row.get("gross_mom")
+        card_cols[1].metric(
+            "当期粗利",
+            f"{latest_gross:,.0f} 円",
+            delta=f"{gross_delta * 100:+.1f}%" if pd.notna(gross_delta) else "-",
+        )
+
+        latest_margin = latest_row.get("gross_margin_rate")
+        prev_margin = prev_row.get("gross_margin_rate") if prev_row is not None else np.nan
+        margin_delta = (
+            (latest_margin - prev_margin) if pd.notna(latest_margin) and pd.notna(prev_margin) else np.nan
+        )
+        card_cols[2].metric(
+            "粗利率",
+            f"{latest_margin:.1%}" if pd.notna(latest_margin) else "-",
+            delta=f"{margin_delta * 100:+.1f}pt" if pd.notna(margin_delta) else "-",
+        )
+
         st.markdown("<div class='chart-section'>", unsafe_allow_html=True)
         st.markdown(
             "<div class='chart-section__header'><div class='chart-section__title'>売上推移</div></div>",
@@ -3993,7 +3188,7 @@ def render_sales_tab(
                 align="left",
                 baseline="middle",
                 dx=6,
-                color="#0F1E2E",
+                color=TEXT_COLOR,
                 fontWeight="bold",
             ).encode(
                 y=alt.Y("チャネル:N", sort="-x"),
@@ -4042,7 +3237,7 @@ def render_sales_tab(
                 align="left",
                 baseline="middle",
                 dx=6,
-                color="#0F1E2E",
+                color=TEXT_COLOR,
                 fontWeight="bold",
             ).encode(
                 y=alt.Y("カテゴリ:N", sort="-x"),
@@ -4266,7 +3461,7 @@ def render_gross_tab(
                 align="left",
                 baseline="middle",
                 dx=6,
-                color="#0F1E2E",
+                color=TEXT_COLOR,
                 fontWeight="bold",
             ).encode(
                 y=alt.Y("カテゴリ:N", sort="-x"),
@@ -4313,7 +3508,7 @@ def render_gross_tab(
                 align="left",
                 baseline="middle",
                 dx=6,
-                color="#0F1E2E",
+                color=TEXT_COLOR,
                 fontWeight="bold",
             ).encode(
                 y=alt.Y("商品:N", sort="-x"),
@@ -4418,7 +3613,7 @@ def render_store_comparison_chart(analysis_df: pd.DataFrame, fixed_cost: float) 
         return
 
     melted["metric_label"] = melted["metric"].map(metric_map)
-    color_sequence = [SALES_SERIES_COLOR, GROSS_SERIES_COLOR, ACCENT_ORANGE]
+    color_sequence = [SALES_SERIES_COLOR, GROSS_SERIES_COLOR, OPERATING_SERIES_COLOR]
     comparison_chart = px.bar(
         melted,
         x="value",
@@ -4475,7 +3670,7 @@ def render_abc_analysis(df: pd.DataFrame) -> None:
     )
     product_sales = product_sales.head(30)
 
-    rank_colors = {"A": SALES_SERIES_COLOR, "B": ACCENT_ORANGE, "C": YOY_SERIES_COLOR}
+    rank_colors = {"A": SALES_SERIES_COLOR, "B": GROSS_SERIES_COLOR, "C": YOY_SERIES_COLOR}
     bar_colors = [rank_colors.get(rank, SALES_SERIES_COLOR) for rank in product_sales["ランク"]]
 
     fig = go.Figure()
@@ -4517,7 +3712,7 @@ def render_abc_analysis(df: pd.DataFrame) -> None:
         y0=80,
         y1=80,
         yref="y2",
-        line=dict(color=BASELINE_SERIES_COLOR, dash="dash"),
+        line=dict(color=SUCCESS_COLOR, dash="dash"),
     )
     fig.update_layout(plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)")
     st.plotly_chart(fig, use_container_width=True)
@@ -4619,8 +3814,15 @@ def render_inventory_tab(
                 alt.Tooltip("inventory_turnover_days:Q", title="在庫回転日数", format=",.1f"),
             ],
         )
+        turnover_target = pd.DataFrame({"target": [45.0]})
+        turnover_rule = (
+            alt.Chart(turnover_target)
+            .mark_rule(color=SUCCESS_COLOR, strokeDash=[6, 4])
+            .encode(y="target:Q")
+        )
         chart_cols[0].altair_chart(
-            apply_altair_theme(turnover_line.properties(height=260)), use_container_width=True
+            apply_altair_theme((turnover_line + turnover_rule).properties(height=260)),
+            use_container_width=True,
         )
 
         stockout_chart = alt.Chart(history).mark_line(
@@ -4637,8 +3839,14 @@ def render_inventory_tab(
                 alt.Tooltip("stockout_rate:Q", title="欠品率", format=".1%"),
             ],
         )
+        stockout_threshold = pd.DataFrame({"target": [0.05]})
+        stockout_rule = (
+            alt.Chart(stockout_threshold)
+            .mark_rule(color=WARNING_COLOR, strokeDash=[6, 4])
+            .encode(y="target:Q")
+        )
         chart_cols[1].altair_chart(
-            apply_altair_theme(stockout_chart.properties(height=260)),
+            apply_altair_theme((stockout_chart + stockout_rule).properties(height=260)),
             use_container_width=True,
         )
         latest_inventory_row = history.iloc[-1]
@@ -4692,7 +3900,7 @@ def render_inventory_tab(
                 align="left",
                 baseline="middle",
                 dx=6,
-                color="#0F1E2E",
+                color=TEXT_COLOR,
                 fontWeight="bold",
             ).encode(
                 y=alt.Y("category:N", sort="-x"),
@@ -4737,7 +3945,7 @@ def render_inventory_tab(
                 align="left",
                 baseline="middle",
                 dx=6,
-                color="#0F1E2E",
+                color=TEXT_COLOR,
                 fontWeight="bold",
             ).encode(
                 y=alt.Y("product_name:N", sort="-x"),
@@ -4987,7 +4195,7 @@ def render_fixed_cost_breakdown(
         breakdown["月次金額"] = breakdown["月次金額"] * target_total / total_current
 
     breakdown["店舗"] = "全社"
-    palette = PLOTLY_COLORWAY + [ACCENT_BLUE_STRONG, SECONDARY_SLATE]
+    palette = PLOTLY_COLORWAY + [ACCENT_COLOR, SECONDARY_COLOR]
     fig = go.Figure()
     for idx, row in enumerate(breakdown.itertuples()):
         fig.add_bar(
@@ -5061,8 +4269,8 @@ def render_profit_meter(pl_result: pd.DataFrame, base_pl: Dict[str, float]) -> N
     steps = []
     if break_even and gauge_upper > break_even:
         steps = [
-            {"range": [0, break_even], "color": "rgba(30,136,229,0.35)"},
-            {"range": [break_even, gauge_upper], "color": "rgba(46,125,50,0.3)"},
+            {"range": [0, break_even], "color": "rgba(198,40,40,0.18)"},
+            {"range": [break_even, gauge_upper], "color": "rgba(46,125,50,0.18)"},
         ]
 
     indicator = go.Figure(
@@ -5315,7 +4523,7 @@ def render_sidebar_upload_expander(
 
 
 def main() -> None:
-    inject_mckinsey_style()
+    inject_design_tokens()
 
     st.sidebar.header("データ設定")
     st.sidebar.markdown(
@@ -6124,7 +5332,7 @@ def main() -> None:
                 y="net_gross_profit",
                 labels={"channel": "チャネル", "net_gross_profit": "粗利"},
                 title="チャネル別粗利比較",
-                color_discrete_sequence=[ACCENT_BLUE],
+                color_discrete_sequence=[GROSS_SERIES_COLOR],
             )
             channel_profit_chart = apply_chart_theme(channel_profit_chart)
             channel_profit_chart.update_layout(
@@ -6149,12 +5357,12 @@ def main() -> None:
                 orientation="h",
                 labels={"net_gross_profit": "粗利", "product_name": "商品名"},
                 custom_data=["product_code", "product_name"],
-                color_discrete_sequence=[ACCENT_BLUE],
+                color_discrete_sequence=[GROSS_SERIES_COLOR],
             )
             top_products_chart = apply_chart_theme(top_products_chart)
             highlight_code = st.session_state.get("profit_focus_product")
             bar_colors = [
-                ACCENT_ORANGE if code == highlight_code else ACCENT_BLUE
+                SUCCESS_COLOR if code == highlight_code else GROSS_SERIES_COLOR
                 for code in top_products_sorted["product_code"]
             ]
             top_products_chart.update_traces(
@@ -6234,7 +5442,7 @@ def main() -> None:
                         y="net_gross_profit",
                         labels={"channel": "チャネル", "net_gross_profit": "粗利"},
                         title="選択商品のチャネル別粗利",
-                        color_discrete_sequence=[ACCENT_BLUE],
+                        color_discrete_sequence=[GROSS_SERIES_COLOR],
                     )
                     breakdown_chart = apply_chart_theme(breakdown_chart)
                     breakdown_chart.update_layout(
@@ -6286,7 +5494,7 @@ def main() -> None:
                             "net_gross_profit": "粗利",
                         },
                         hover_data={"period_label": True},
-                        color_discrete_sequence=[ACCENT_BLUE],
+                        color_discrete_sequence=[GROSS_SERIES_COLOR],
                     )
                     profit_trend_chart = apply_chart_theme(profit_trend_chart)
                     profit_trend_chart.update_layout(title="選択商品の粗利推移")
@@ -6364,7 +5572,7 @@ def main() -> None:
                 y="cash_balance",
                 markers=True,
                 title="資金残高予測",
-                color_discrete_sequence=[ACCENT_BLUE],
+                color_discrete_sequence=[CASH_SERIES_COLOR],
             )
             cash_chart = apply_chart_theme(cash_chart)
             cash_chart.update_layout(yaxis_title="円", xaxis_title="月")
@@ -6397,7 +5605,7 @@ def main() -> None:
                     y="ltv",
                     markers=True,
                     title="LTV推移",
-                    color_discrete_sequence=[ACCENT_BLUE],
+                    color_discrete_sequence=[ACCENT_COLOR],
                 )
                 fig = apply_chart_theme(fig)
                 st.plotly_chart(fig, use_container_width=True)
@@ -6408,7 +5616,7 @@ def main() -> None:
                     y="cac",
                     markers=True,
                     title="CAC推移",
-                    color_discrete_sequence=[ACCENT_BLUE],
+                    color_discrete_sequence=[WARNING_COLOR],
                 )
                 fig = apply_chart_theme(fig)
                 st.plotly_chart(fig, use_container_width=True)
@@ -6418,7 +5626,7 @@ def main() -> None:
                     x="month_str",
                     y="repeat_rate",
                     title="リピート率推移",
-                    color_discrete_sequence=[ACCENT_BLUE],
+                    color_discrete_sequence=[ACCENT_COLOR],
                 )
                 fig = apply_chart_theme(fig)
                 st.plotly_chart(fig, use_container_width=True)
@@ -6428,7 +5636,7 @@ def main() -> None:
                     x="month_str",
                     y="churn_rate",
                     title="チャーン率推移",
-                    color_discrete_sequence=[ACCENT_ORANGE],
+                    color_discrete_sequence=[ERROR_COLOR],
                 )
                 fig = apply_chart_theme(fig)
                 st.plotly_chart(fig, use_container_width=True)
@@ -6439,7 +5647,7 @@ def main() -> None:
                     y="roas",
                     markers=True,
                     title="ROAS推移",
-                    color_discrete_sequence=[ACCENT_BLUE],
+                    color_discrete_sequence=[SALES_SERIES_COLOR],
                 )
                 fig = apply_chart_theme(fig)
                 st.plotly_chart(fig, use_container_width=True)
