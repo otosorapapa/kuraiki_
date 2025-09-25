@@ -8,7 +8,7 @@ import io
 from contextlib import contextmanager
 import calendar
 from datetime import date, datetime, timedelta
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, TypeVar, Union
 from urllib.parse import parse_qsl
 
 import numpy as np
@@ -159,7 +159,9 @@ EXPENSE_PLAN_TEMPLATES: Dict[str, List[Dict[str, Any]]] = {
     ],
 }
 
-DEFAULT_STORE_OPTIONS = ["全社", "那覇本店", "浦添物流センター", "EC本部"]
+DEFAULT_STORE_OPTIONS = ["全社", "本店", "那覇本店", "浦添物流センター", "EC本部"]
+
+T = TypeVar("T")
 
 FILTER_STATE_KEYS = {
     "store": "filter_store",
@@ -171,14 +173,31 @@ FILTER_STATE_KEYS = {
 }
 
 STATE_MESSAGES: Dict[str, Dict[str, Any]] = {
-    "empty_data": {
+    "data_unloaded": {
         "type": "warning",
-        "text": "該当期間のデータがありません。他の期間やチャネルを選択してください。",
-        "action_label": "デフォルト条件に戻る",
+        "text": "データが読み込まれていません。左の [サンプルデータを読み込む] または [CSVアップロード] を実行してください。",
+        "action_label": "サンプルデータを読み込む",
+        "secondary_action_label": "ファイルを選択",
     },
     "loading": {
         "type": "info",
-        "text": "データを読み込み中です…",
+        "text": "データを読み込み中です。完了まで数秒お待ちください…",
+    },
+    "filter_no_result": {
+        "type": "warning",
+        "text": "該当するデータが見つかりません。期間や店舗フィルタを変更して再検索してください。",
+        "action_label": "フィルタをリセット",
+    },
+    "upload_failed": {
+        "type": "error",
+        "text": "CSVファイルの形式が正しくありません。サンプルテンプレートをダウンロードしてフォーマットを確認してください。",
+        "action_label": "再アップロード",
+        "secondary_action_label": "テンプレートをダウンロード",
+    },
+    "server_error": {
+        "type": "error",
+        "text": "予期しないエラーが発生しました。ページを再読み込みして再試行してください。",
+        "action_label": "再読み込み",
     },
     "success": {
         "type": "success",
@@ -187,11 +206,6 @@ STATE_MESSAGES: Dict[str, Dict[str, Any]] = {
     "warning_gross_margin": {
         "type": "warning",
         "text": "粗利率が目標を下回っています。商品構成を見直しましょう。",
-    },
-    "error": {
-        "type": "error",
-        "text": "データの読み込みに失敗しました。再試行してください。",
-        "action_label": "再読み込み",
     },
     "csv_done": {
         "type": "info",
@@ -1052,6 +1066,9 @@ def display_state_message(
     action: Optional[Callable[[], None]] = None,
     action_label: Optional[str] = None,
     action_key: Optional[str] = None,
+    secondary_action: Optional[Callable[[], None]] = None,
+    secondary_action_label: Optional[str] = None,
+    secondary_action_key: Optional[str] = None,
     container: Optional[Any] = None,
 ) -> None:
     """状態に応じたフィードバックメッセージを表示する。"""
@@ -1068,10 +1085,24 @@ def display_state_message(
     display_fn(message_text)
 
     label = action_label or config.get("action_label")
-    if action and label:
-        button_kwargs = {"key": action_key} if action_key else {}
-        if target.button(label, **button_kwargs):
-            action()
+    if label:
+        button_key = action_key or config.get("action_key") or f"{state}_primary_action"
+        primary_action = action or config.get("action")
+        if target.button(label, key=button_key):
+            if callable(primary_action):
+                primary_action()
+
+    secondary_label = secondary_action_label or config.get("secondary_action_label")
+    if secondary_label:
+        secondary_key = (
+            secondary_action_key
+            or config.get("secondary_action_key")
+            or f"{state}_secondary_action"
+        )
+        secondary_callable = secondary_action or config.get("secondary_action")
+        if target.button(secondary_label, key=secondary_key):
+            if callable(secondary_callable):
+                secondary_callable()
 
 
 def suggest_default_period(min_date: date, max_date: date) -> Tuple[date, date]:
@@ -2712,6 +2743,48 @@ def render_bsc_card(
     for metric in metrics:
         st.metric(metric["label"], metric["value"], delta=metric.get("delta"))
     st.markdown("</div>", unsafe_allow_html=True)
+
+
+def persistent_segmented_control(
+    key: str,
+    options: Sequence[T],
+    *,
+    default: Optional[T] = None,
+    label: str = "表示切替",
+    help_text: Optional[str] = None,
+    label_visibility: str = "collapsed",
+    format_func: Optional[Callable[[T], str]] = None,
+) -> T:
+    """セッションに選択状態を保持するセグメントコントロールを描画する。"""
+
+    if not options:
+        raise ValueError("options must not be empty")
+
+    default_value = default if default is not None else options[0]
+    if key not in st.session_state or st.session_state[key] not in options:
+        st.session_state[key] = default_value
+
+    widget_value = st.segmented_control(
+        label,
+        options,
+        selection_mode="single",
+        default=st.session_state[key],
+        format_func=format_func,
+        key=f"{key}_segmented",
+        help=help_text,
+        label_visibility=label_visibility,
+    )
+
+    if isinstance(widget_value, list):
+        selected_value: T = widget_value[0] if widget_value else default_value
+    else:
+        selected_value = widget_value if widget_value in options else default_value
+
+    if selected_value not in options:
+        selected_value = default_value
+
+    st.session_state[key] = selected_value
+    return selected_value
 
 
 def render_navigation() -> Tuple[str, str]:
@@ -4884,6 +4957,7 @@ def main() -> None:
     use_sample_data = st.sidebar.checkbox(
         "サンプルデータを使用",
         value=True,
+        key="use_sample_data_checkbox",
         help="チェックするとダッシュボードにサンプルデータが読み込まれます。外すとアップロードしたファイルのみで指標を計算します。",
     )
     sample_status = (
@@ -5087,7 +5161,7 @@ def main() -> None:
             )
     except Exception:
         display_state_message(
-            "error",
+            "server_error",
             action=lambda: st.experimental_rerun(),
             action_key="reload_after_error",
         )
@@ -5099,7 +5173,21 @@ def main() -> None:
     sales_validation: ValidationReport = data_dict.get("sales_validation", ValidationReport())
 
     if sales_df.empty:
-        display_state_message("empty_data")
+        def _enable_sample_data() -> None:
+            st.session_state["use_sample_data_checkbox"] = True
+            st.experimental_rerun()
+
+        def _navigate_to_upload() -> None:
+            st.session_state["main_nav"] = "data"
+            st.session_state["primary_section_tab"] = "データ管理"
+            st.experimental_rerun()
+
+        display_state_message(
+            "data_unloaded",
+            action=_enable_sample_data,
+            secondary_action=_navigate_to_upload,
+            secondary_action_key="data_unloaded_upload",
+        )
         return
 
     merged_full = merge_sales_and_costs(sales_df, cost_df)
@@ -5126,7 +5214,8 @@ def main() -> None:
         store_candidates.extend(candidate_values)
     store_candidates.extend(option for option in DEFAULT_STORE_OPTIONS if option not in store_candidates)
     store_options = list(dict.fromkeys(store_candidates)) or ["全社"]
-    default_store = store_options[0]
+    preferred_store = "本店"
+    default_store = preferred_store if preferred_store in store_options else store_options[0]
 
     default_filters = {
         FILTER_STATE_KEYS["store"]: default_store,
@@ -5277,7 +5366,7 @@ def main() -> None:
     )
     if filtered_sales.empty:
         display_state_message(
-            "empty_data",
+            "filter_no_result",
             action=lambda: reset_filters(default_filters),
             action_key="reset_after_empty",
         )
@@ -5399,16 +5488,25 @@ def main() -> None:
 
             render_first_level_kpi_strip(kpi_period_summary, selected_kpi_row)
 
-            tab_labels = ["売上", "粗利", "在庫", "資金", "KPI", "データ管理"]
-            (
-                sales_tab,
-                gross_tab,
-                inventory_tab,
-                cash_tab,
-                kpi_tab,
-                data_tab,
-            ) = st.tabs([f"📈 {label}" for label in tab_labels])
-            with sales_tab:
+            primary_tab_entries = [
+                ("売上", "📈"),
+                ("粗利", "💹"),
+                ("在庫", "📦"),
+                ("資金", "💰"),
+                ("KPI", "📈"),
+                ("データ管理", "🗂"),
+            ]
+            icon_lookup = {label: icon for label, icon in primary_tab_entries}
+            tab_labels = [label for label, _ in primary_tab_entries]
+            selected_primary_tab = persistent_segmented_control(
+                "primary_section_tab",
+                tab_labels,
+                default=st.session_state.get("primary_section_tab", tab_labels[0]),
+                help_text="前回開いていたタブを記憶し、次回アクセス時も同じ画面から再開できます。",
+                format_func=lambda value: f"{icon_lookup[value]} {value}",
+            )
+
+            if selected_primary_tab == "売上":
                 render_sales_tab(
                     merged_df,
                     period_summary,
@@ -5416,15 +5514,15 @@ def main() -> None:
                     category_share_df,
                     selected_granularity_label,
                 )
-            with gross_tab:
+            elif selected_primary_tab == "粗利":
                 render_gross_tab(merged_df, period_summary, selected_granularity_label)
-            with inventory_tab:
+            elif selected_primary_tab == "在庫":
                 render_inventory_tab(merged_df, kpi_period_summary, selected_kpi_row)
-            with cash_tab:
+            elif selected_primary_tab == "資金":
                 render_cash_tab(default_cash_plan, default_cash_forecast, starting_cash)
-            with kpi_tab:
+            elif selected_primary_tab == "KPI":
                 render_kpi_overview_tab(kpi_period_summary)
-            with data_tab:
+            else:
                 render_data_status_section(
                     merged_df,
                     cost_df,
@@ -5802,6 +5900,7 @@ def main() -> None:
                             }
                         ),
                         use_container_width=True,
+                        hide_index=True,
                     )
 
                 product_trend = product_detail.copy()
@@ -5930,61 +6029,53 @@ def main() -> None:
         else:
             kpi_history_display = kpi_history_df.sort_values("month").copy()
             kpi_history_display["month_str"] = kpi_history_display["month"].astype(str)
-            kpi_charts = st.tabs(["LTV", "CAC", "リピート率", "チャーン率", "ROAS"])
+            kpi_tab_entries = [
+                ("ltv", "LTV", px.line, {"color_discrete_sequence": [ACCENT_COLOR]}),
+                ("cac", "CAC", px.line, {"color_discrete_sequence": [WARNING_COLOR]}),
+                ("repeat_rate", "リピート率", px.bar, {"color_discrete_sequence": [ACCENT_COLOR]}),
+                ("churn_rate", "チャーン率", px.bar, {"color_discrete_sequence": [ERROR_COLOR]}),
+                ("roas", "ROAS", px.line, {"color_discrete_sequence": [SALES_SERIES_COLOR]}),
+            ]
+            value_to_label = {value: label for value, label, *_ in kpi_tab_entries}
+            default_kpi_tab = st.session_state.get("kpi_chart_tab", kpi_tab_entries[0][0])
+            selected_kpi_chart = persistent_segmented_control(
+                "kpi_chart_tab",
+                [value for value, *_ in kpi_tab_entries],
+                default=default_kpi_tab,
+                help_text="KPIタブの選択を保持し、再訪時に同じ指標から確認できます。",
+                format_func=lambda value: value_to_label[value],
+                label="KPI詳細切替",
+                label_visibility="visible",
+            )
 
-            with kpi_charts[0]:
-                fig = px.line(
+            chart_factory = next(
+                (
+                    (chart_fn, extra_kwargs)
+                    for value, _, chart_fn, extra_kwargs in kpi_tab_entries
+                    if value == selected_kpi_chart
+                ),
+                (px.line, {}),
+            )
+            chart_fn, chart_kwargs = chart_factory
+            if chart_fn is px.line:
+                fig = chart_fn(
                     kpi_history_display,
                     x="month_str",
-                    y="ltv",
+                    y=selected_kpi_chart,
+                    title=f"{value_to_label[selected_kpi_chart]}推移",
                     markers=True,
-                    title="LTV推移",
-                    color_discrete_sequence=[ACCENT_COLOR],
+                    **chart_kwargs,
                 )
-                fig = apply_chart_theme(fig)
-                st.plotly_chart(fig, use_container_width=True)
-            with kpi_charts[1]:
-                fig = px.line(
+            else:
+                fig = chart_fn(
                     kpi_history_display,
                     x="month_str",
-                    y="cac",
-                    markers=True,
-                    title="CAC推移",
-                    color_discrete_sequence=[WARNING_COLOR],
+                    y=selected_kpi_chart,
+                    title=f"{value_to_label[selected_kpi_chart]}推移",
+                    **chart_kwargs,
                 )
-                fig = apply_chart_theme(fig)
-                st.plotly_chart(fig, use_container_width=True)
-            with kpi_charts[2]:
-                fig = px.bar(
-                    kpi_history_display,
-                    x="month_str",
-                    y="repeat_rate",
-                    title="リピート率推移",
-                    color_discrete_sequence=[ACCENT_COLOR],
-                )
-                fig = apply_chart_theme(fig)
-                st.plotly_chart(fig, use_container_width=True)
-            with kpi_charts[3]:
-                fig = px.bar(
-                    kpi_history_display,
-                    x="month_str",
-                    y="churn_rate",
-                    title="チャーン率推移",
-                    color_discrete_sequence=[ERROR_COLOR],
-                )
-                fig = apply_chart_theme(fig)
-                st.plotly_chart(fig, use_container_width=True)
-            with kpi_charts[4]:
-                fig = px.line(
-                    kpi_history_display,
-                    x="month_str",
-                    y="roas",
-                    markers=True,
-                    title="ROAS推移",
-                    color_discrete_sequence=[SALES_SERIES_COLOR],
-                )
-                fig = apply_chart_theme(fig)
-                st.plotly_chart(fig, use_container_width=True)
+            fig = apply_chart_theme(fig)
+            st.plotly_chart(fig, use_container_width=True)
 
             st.dataframe(
                 kpi_history_display[
@@ -6015,10 +6106,17 @@ def main() -> None:
                 period_options.append(label)
                 period_map[label] = period_value
             default_period_index = len(period_options) - 1 if len(period_options) > 1 else 0
+            period_select_key = "kpi_breakdown_period"
+            if (
+                period_select_key not in st.session_state
+                or st.session_state[period_select_key] not in period_options
+            ):
+                st.session_state[period_select_key] = period_options[default_period_index]
             selected_period_label = st.selectbox(
                 "分析対象期間",
                 options=period_options,
-                index=default_period_index,
+                index=period_options.index(st.session_state[period_select_key]),
+                key=period_select_key,
                 help="チャネル別・カテゴリ別のKPI集計に用いる期間を選択します。",
             )
             selected_period_value = period_map.get(selected_period_label)
@@ -6053,53 +6151,59 @@ def main() -> None:
                     )
 
                 st.caption("広告費や解約率は最新KPI値をシェアに応じて按分した推計値です。")
-                breakdown_tabs = st.tabs([title for title, *_ in breakdown_tables])
-                for tab_obj, (title, column, label, df_breakdown) in zip(
-                    breakdown_tabs, breakdown_tables
-                ):
-                    with tab_obj:
-                        if df_breakdown is None or df_breakdown.empty:
-                            st.info(f"{label}別のKPIを算出するためのデータが不足しています。")
-                            continue
+                breakdown_titles = [title for title, *_ in breakdown_tables]
+                selected_breakdown_title = persistent_segmented_control(
+                    "kpi_breakdown_tab",
+                    breakdown_titles,
+                    default=st.session_state.get("kpi_breakdown_tab", breakdown_titles[0]),
+                    help_text="前回表示していた切り口を記憶します。",
+                )
 
-                        chart_data = df_breakdown.nlargest(10, "sales_amount")
-                        bar_chart = px.bar(
-                            chart_data,
-                            x=column,
-                            y="sales_amount",
-                            labels={column: label, "sales_amount": "売上高"},
-                            title=f"{label}別売上高 (上位{min(len(chart_data), 10)}件)",
-                            color_discrete_sequence=PLOTLY_COLORWAY,
-                        )
-                        bar_chart = apply_chart_theme(bar_chart)
-                        bar_chart.update_layout(yaxis_title="円", xaxis_title=label)
-                        st.plotly_chart(bar_chart, use_container_width=True)
+                for title, column, label, df_breakdown in breakdown_tables:
+                    if title != selected_breakdown_title:
+                        continue
+                    if df_breakdown is None or df_breakdown.empty:
+                        st.info(f"{label}別のKPIを算出するためのデータが不足しています。")
+                        break
 
-                        display_df = df_breakdown.rename(
-                            columns={
-                                column: label,
-                                "sales_amount": "売上高",
-                                "gross_profit": "粗利",
-                                "gross_margin_rate": "粗利率",
-                                "sales_share": "売上構成比",
-                                "active_customers": "顧客数",
-                                "new_customers": "新規顧客数",
-                                "repeat_customers": "リピート顧客数",
-                                "reactivated_customers": "休眠復活顧客数",
-                                "repeat_rate": "リピート率",
-                                "churn_rate": "推定解約率",
-                                "arpu": "ARPU",
-                                "ltv": "推定LTV",
-                                "cac": "CAC",
-                                "roas": "ROAS",
-                                "marketing_cost": "広告費配分",
-                                "profit_contribution": "粗利貢献額",
-                                "profit_per_customer": "顧客あたり利益",
-                                "avg_order_value": "平均受注単価",
-                                "orders": "注文件数",
-                            }
-                        )
-                        ordered_columns = [
+                    chart_data = df_breakdown.nlargest(10, "sales_amount")
+                    bar_chart = px.bar(
+                        chart_data,
+                        x=column,
+                        y="sales_amount",
+                        labels={column: label, "sales_amount": "売上高"},
+                        title=f"{label}別売上高 (上位{min(len(chart_data), 10)}件)",
+                        color_discrete_sequence=PLOTLY_COLORWAY,
+                    )
+                    bar_chart = apply_chart_theme(bar_chart)
+                    bar_chart.update_layout(yaxis_title="円", xaxis_title=label)
+                    st.plotly_chart(bar_chart, use_container_width=True)
+
+                    display_df = df_breakdown.rename(
+                        columns={
+                            column: label,
+                            "sales_amount": "売上高",
+                            "gross_profit": "粗利",
+                            "gross_margin_rate": "粗利率",
+                            "sales_share": "売上構成比",
+                            "active_customers": "顧客数",
+                            "new_customers": "新規顧客数",
+                            "repeat_customers": "リピート顧客数",
+                            "reactivated_customers": "休眠復活顧客数",
+                            "repeat_rate": "リピート率",
+                            "churn_rate": "推定解約率",
+                            "arpu": "ARPU",
+                            "ltv": "推定LTV",
+                            "cac": "CAC",
+                            "roas": "ROAS",
+                            "marketing_cost": "広告費配分",
+                            "profit_contribution": "粗利貢献額",
+                            "profit_per_customer": "顧客あたり利益",
+                            "avg_order_value": "平均受注単価",
+                            "orders": "注文件数",
+                        }
+                    )
+                    ordered_columns = [
                             label,
                             "売上高",
                             "粗利",
@@ -6121,8 +6225,8 @@ def main() -> None:
                             "平均受注単価",
                             "注文件数",
                         ]
-                        existing_columns = [col for col in ordered_columns if col in display_df.columns]
-                        formatters = {
+                    existing_columns = [col for col in ordered_columns if col in display_df.columns]
+                    formatters = {
                             "売上高": "{:,.0f}",
                             "粗利": "{:,.0f}",
                             "粗利率": "{:.1%}",
@@ -6143,9 +6247,10 @@ def main() -> None:
                             "平均受注単価": "{:,.0f}",
                             "注文件数": "{:,.0f}",
                         }
-                        st.dataframe(
+                    st.dataframe(
                             display_df[existing_columns].style.format({k: v for k, v in formatters.items() if k in existing_columns}),
                             use_container_width=True,
+                            hide_index=True,
                         )
 
             profit_column = (
