@@ -54,6 +54,17 @@ st.set_page_config(
 )
 
 
+def trigger_rerun() -> None:
+    """Streamlitの再実行を互換性を保ちながら呼び出す。"""
+
+    rerun_callable = getattr(st, "rerun", None)
+    if rerun_callable is None:
+        rerun_callable = getattr(st, "experimental_rerun", None)
+    if rerun_callable is None:
+        raise RuntimeError("Streamlit rerun function is unavailable.")
+    rerun_callable()
+
+
 PERIOD_FREQ_OPTIONS: List[Tuple[str, str]] = [
     ("月次", "M"),
     ("週次", "W-MON"),
@@ -1204,7 +1215,7 @@ def render_onboarding_wizard(
             st.session_state["use_sample_data_checkbox"] = True
             st.session_state.pop("sample_data_warmed", None)
             st.session_state.pop("sample_data_rows", None)
-            st.experimental_rerun()
+            trigger_rerun()
     else:
         warmed_rows = st.session_state.get("sample_data_rows")
         if use_sample and warmed_rows:
@@ -1474,7 +1485,7 @@ def reset_filters(defaults: Dict[str, Any]) -> None:
             st.session_state[key] = list(value)
         else:
             st.session_state[key] = value
-    st.experimental_rerun()
+    trigger_rerun()
 
 
 def jump_to_section(section_key: str) -> None:
@@ -1484,7 +1495,7 @@ def jump_to_section(section_key: str) -> None:
         return
     st.session_state["main_nav"] = section_key
     st.session_state["main_nav_display"] = NAV_OPTION_LOOKUP[section_key]
-    st.experimental_rerun()
+    trigger_rerun()
 
 
 def build_filter_signature(
@@ -2697,7 +2708,7 @@ def render_business_plan_wizard(actual_sales: Optional[pd.DataFrame]) -> None:
     with header_cols[1]:
         if st.button("リセット", key="plan_reset_button"):
             reset_plan_wizard_state()
-            st.experimental_rerun()
+            trigger_rerun()
 
     step_index = int(state.get("current_step", 0))
     total_steps = len(PLAN_WIZARD_STEPS)
@@ -2740,7 +2751,7 @@ def render_business_plan_wizard(actual_sales: Optional[pd.DataFrame]) -> None:
     nav_cols = st.columns([1, 1, 1])
     if nav_cols[0].button("戻る", disabled=step_index == 0, key=f"plan_prev_{step_index}"):
         state["current_step"] = max(step_index - 1, 0)
-        st.experimental_rerun()
+        trigger_rerun()
 
     next_label = "完了" if step_index == total_steps - 1 else "次へ進む"
     next_disabled = step_index < total_steps - 1 and not is_valid
@@ -2749,7 +2760,7 @@ def render_business_plan_wizard(actual_sales: Optional[pd.DataFrame]) -> None:
             state["current_step"] = min(step_index + 1, total_steps - 1)
         else:
             state["completed"] = True
-        st.experimental_rerun()
+        trigger_rerun()
 
     if step_index == total_steps - 1 and state.get("completed"):
         st.success("経営計画ウィザードの入力が完了しました。CSV出力で関係者と共有できます。")
@@ -5664,7 +5675,7 @@ def render_scenario_analysis_section(
                 if remove_col.button("削除", key=f"remove_scenario_{idx}"):
                     scenarios.pop(idx)
                     st.session_state["scenario_inputs"] = scenarios
-                    st.experimental_rerun()
+                    trigger_rerun()
 
     with tabs[1]:
         st.header("分析結果")
@@ -6139,7 +6150,7 @@ def main() -> None:
         )
         display_state_message(
             "server_error",
-            action=lambda: st.experimental_rerun(),
+            action=trigger_rerun,
             action_key="reload_after_error",
         )
         return
@@ -6163,12 +6174,12 @@ def main() -> None:
 
         def _enable_sample_data() -> None:
             st.session_state["use_sample_data_checkbox"] = True
-            st.experimental_rerun()
+            trigger_rerun()
 
         def _navigate_to_upload() -> None:
             st.session_state["main_nav"] = "data"
             st.session_state["primary_section_tab"] = "データ管理"
-            st.experimental_rerun()
+            trigger_rerun()
 
         display_state_message(
             "data_unloaded",
@@ -6319,7 +6330,7 @@ def main() -> None:
         reset_filters(default_filters)
     if st.sidebar.button("セッション状態を初期化", key="clear_session_button"):
         st.session_state.clear()
-        st.experimental_rerun()
+        trigger_rerun()
 
     selected_store = st.session_state[store_state_key]
     selected_channels = st.session_state[channel_state_key]
