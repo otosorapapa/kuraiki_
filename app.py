@@ -1188,14 +1188,16 @@ def render_onboarding_wizard(
         unsafe_allow_html=True,
     )
 
+    desired_sample_state = bool(sample_checked)
+    if st.session_state.get("use_sample_data_checkbox") != desired_sample_state:
+        st.session_state["use_sample_data_checkbox"] = desired_sample_state
+
     use_sample = wizard_box.checkbox(
         "サンプルデータを使用して試す",
-        value=sample_checked,
+        value=desired_sample_state,
         key="use_sample_data_checkbox",
         help="チェックを外すとアップロードした実データのみでダッシュボードを構成します。",
     )
-    if not use_sample:
-        st.session_state["use_sample_data_checkbox"] = False
 
     if not data_loaded:
         if wizard_box.button("サンプルデータを読み込む", key="wizard_load_sample_button"):
