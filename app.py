@@ -398,7 +398,7 @@ def apply_altair_theme(chart: alt.Chart) -> alt.Chart:
     )
 
 
-def inject_design_tokens() -> None:
+def inject_mckinsey_style() -> None:
     """デザイン・トークンと共通スタイルをアプリに適用する。"""
 
     st.markdown(
@@ -415,6 +415,10 @@ def inject_design_tokens() -> None:
             --text-color: {TEXT_COLOR};
             --muted-text-color: {MUTED_TEXT_COLOR};
             --font-family: {APP_FONT_STACK};
+            --radius-card: 0.625rem;
+            --radius-card-tight: 0.5rem;
+            --shadow-elevation-soft: 0 6px 16px rgba(11,31,59,0.06);
+            --shadow-elevation-subtle: 0 4px 12px rgba(11,31,59,0.05);
         }}
         html, body, [data-testid="stAppViewContainer"] {{
             background-color: var(--background-color);
@@ -427,17 +431,17 @@ def inject_design_tokens() -> None:
         }}
         .surface-card {{
             background: var(--surface-color);
-            border-radius: 12px;
+            border-radius: var(--radius-card);
             padding: 1.5rem;
             border: 1px solid rgba(11,31,59,0.08);
-            box-shadow: 0 12px 24px rgba(11,31,59,0.05);
+            box-shadow: var(--shadow-elevation-soft);
         }}
         .chart-section {{
             background: var(--surface-color);
-            border-radius: 12px;
+            border-radius: var(--radius-card);
             padding: 1.25rem 1.5rem;
             border: 1px solid rgba(11,31,59,0.08);
-            box-shadow: 0 12px 28px rgba(11,31,59,0.05);
+            box-shadow: var(--shadow-elevation-soft);
             margin-bottom: 1.75rem;
         }}
         .chart-section__header {{
@@ -459,10 +463,10 @@ def inject_design_tokens() -> None:
         }}
         .kpi-strip__card {{
             background: var(--surface-color);
-            border-radius: 12px;
+            border-radius: var(--radius-card);
             padding: 1rem 1.2rem;
             border: 1px solid rgba(11,31,59,0.08);
-            box-shadow: 0 10px 20px rgba(11,31,59,0.05);
+            box-shadow: var(--shadow-elevation-subtle);
         }}
         .kpi-strip__label {{
             font-size: 0.75rem;
@@ -497,10 +501,10 @@ def inject_design_tokens() -> None:
         }}
         div[data-testid="stMetric"] {{
             background: var(--surface-color);
-            border-radius: 12px;
+            border-radius: var(--radius-card);
             padding: 1rem 1.25rem;
-            border: 1px solid rgba(11,31,59,0.1);
-            box-shadow: 0 12px 24px rgba(11,31,59,0.05);
+            border: 1px solid rgba(11,31,59,0.08);
+            box-shadow: var(--shadow-elevation-subtle);
         }}
         div[data-testid="stMetricValue"] {{
             font-family: {MONO_FONT_STACK};
@@ -538,10 +542,18 @@ def inject_design_tokens() -> None:
         }}
         .data-status-card {{
             background: var(--surface-color);
-            border-radius: 12px;
+            border-radius: var(--radius-card);
             padding: 1.1rem 1.3rem;
             border: 1px solid rgba(11,31,59,0.08);
-            box-shadow: 0 12px 24px rgba(11,31,59,0.05);
+            box-shadow: var(--shadow-elevation-soft);
+        }}
+        .form-section {{
+            background: var(--surface-color);
+            border-radius: var(--radius-card);
+            border: 1px solid rgba(11,31,59,0.08);
+            padding: 1.25rem 1.5rem;
+            box-shadow: var(--shadow-elevation-subtle);
+            margin-bottom: 1.25rem;
         }}
         section[data-testid="stSidebar"] {{
             background: var(--surface-color);
@@ -550,10 +562,10 @@ def inject_design_tokens() -> None:
         }}
         section[data-testid="stSidebar"] .sidebar-section {{
             background: var(--surface-color);
-            border-radius: 12px;
+            border-radius: var(--radius-card);
             border: 1px solid rgba(11,31,59,0.08);
             padding: 1rem 1.1rem;
-            box-shadow: 0 8px 16px rgba(11,31,59,0.04);
+            box-shadow: var(--shadow-elevation-subtle);
             margin-bottom: 1rem;
         }}
         section[data-testid="stSidebar"] .sidebar-section__status {{
@@ -586,13 +598,13 @@ def inject_design_tokens() -> None:
             border-color: rgba(11,31,59,0.35);
         }}
         .search-card input {{
-            border-radius: 10px;
+            border-radius: var(--radius-card-tight);
             border: 1px solid rgba(11,31,59,0.18);
             padding: 0.6rem 0.9rem;
         }}
         .stApp main .stButton>button,
         .stApp main .stDownloadButton>button {{
-            border-radius: 10px;
+            border-radius: var(--radius-card-tight);
             padding: 0.65rem 1.4rem;
             font-weight: 600;
             background: var(--accent-color);
@@ -4523,7 +4535,7 @@ def render_sidebar_upload_expander(
 
 
 def main() -> None:
-    inject_design_tokens()
+    inject_mckinsey_style()
 
     st.sidebar.header("データ設定")
     st.sidebar.markdown(
