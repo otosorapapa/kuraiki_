@@ -176,13 +176,13 @@ FILTER_STATE_KEYS = {
 STATE_MESSAGES: Dict[str, Dict[str, Any]] = {
     "data_unloaded": {
         "type": "warning",
-        "text": "データが読み込まれていません。左の [サンプルデータを読み込む] または [CSVアップロード] を実行してください。",
+        "text": "データが読み込まれていません。サイドバー上部の『はじめに』からサンプルデータを読み込むか、CSVをアップロードしてください。",
         "action_label": "サンプルデータを読み込む",
         "secondary_action_label": "ファイルを選択",
     },
     "loading": {
         "type": "info",
-        "text": "データを読み込み中です。完了まで数秒お待ちください…",
+        "text": "データを準備しています。完了まで数秒お待ちください…",
     },
     "filter_no_result": {
         "type": "warning",
@@ -337,8 +337,6 @@ NUMERIC_FONT_STACK = (
 MONO_FONT_STACK = "'Roboto Mono', 'Source Code Pro', monospace"
 
 COMPANY_LOGO_URL = "https://raw.githubusercontent.com/streamlit/brand/main/logos/mark/streamlit-mark-color.png"
-INTRO_VIDEO_URL = "https://www.youtube.com/embed/vzAn5U81ELs"
-
 COLOR_TOKENS: Dict[str, str] = {
     "primary": PRIMARY_COLOR,
     "secondary": SECONDARY_COLOR,
@@ -963,6 +961,105 @@ def inject_mckinsey_style(*, dark_mode: bool = False) -> None:
                 padding: 2rem 1.8rem;
             }}
         }}
+        .onboarding-wizard {{
+            border: 1px solid rgba(11,31,59,0.12);
+            border-radius: var(--radius-card);
+            padding: 1.25rem 1.1rem 1.4rem;
+            margin-bottom: var(--spacing-sm);
+            background: rgba(11,31,59,0.02);
+            box-shadow: var(--shadow-sm);
+        }}
+        .onboarding-wizard__title {{
+            font-size: 0.95rem;
+            font-weight: 700;
+            margin-bottom: var(--spacing-sm);
+        }}
+        .onboarding-step {{
+            border-radius: var(--radius-card);
+            padding: 0.75rem 0.85rem;
+            background: rgba(11,31,59,0.04);
+            border: 1px dashed rgba(11,31,59,0.1);
+            margin-bottom: var(--spacing-xs);
+        }}
+        .onboarding-step--done {{
+            border-style: solid;
+            background: rgba(var(--success-rgb),0.08);
+            border-color: rgba(var(--success-rgb),0.4);
+        }}
+        .onboarding-step__header {{
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-weight: 600;
+            margin-bottom: 0.35rem;
+        }}
+        .onboarding-step__badge {{
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 1.6rem;
+            height: 1.6rem;
+            border-radius: 50%;
+            background: rgba(11,31,59,0.1);
+            color: var(--text-color);
+            font-size: 0.8rem;
+            font-weight: 700;
+        }}
+        .onboarding-step--done .onboarding-step__badge {{
+            background: rgba(var(--success-rgb),0.25);
+            color: var(--success-color);
+        }}
+        .onboarding-step__title {{
+            font-size: 0.85rem;
+        }}
+        .onboarding-step__desc {{
+            font-size: 0.8rem;
+            color: var(--muted-text-color);
+            line-height: 1.5;
+        }}
+        .sidebar-disabled {{
+            border-radius: var(--radius-card);
+            border: 1px dashed rgba(11,31,59,0.12);
+            padding: 0.85rem 1rem;
+            margin-bottom: var(--spacing-sm);
+            background: rgba(11,31,59,0.04);
+            color: var(--muted-text-color);
+            font-size: 0.82rem;
+        }}
+        .empty-dashboard {{
+            border-radius: var(--radius-card);
+            border: 1px dashed rgba(11,31,59,0.16);
+            padding: 2rem 2.25rem;
+            text-align: center;
+            background: rgba(11,31,59,0.03);
+            color: var(--muted-text-color);
+            margin-bottom: var(--spacing-lg);
+        }}
+        .empty-dashboard__hint {{
+            display: block;
+            margin-top: 0.75rem;
+            font-size: 0.85rem;
+        }}
+        .quick-tutorial {{
+            border-radius: var(--radius-card);
+            border: 1px solid rgba(11,31,59,0.08);
+            padding: 1.1rem 1.2rem;
+            background: rgba(11,31,59,0.03);
+            box-shadow: var(--shadow-sm);
+        }}
+        .quick-tutorial__title {{
+            font-weight: 700;
+            margin-bottom: 0.6rem;
+            font-size: 0.9rem;
+        }}
+        .quick-tutorial ol {{
+            padding-left: 1.2rem;
+            margin: 0;
+        }}
+        .quick-tutorial li {{
+            font-size: 0.85rem;
+            margin-bottom: 0.45rem;
+        }}
         </style>
         """,
         unsafe_allow_html=True,
@@ -1004,10 +1101,140 @@ def remember_last_uploaded_files(
 def load_sample_data() -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """サンプルデータをキャッシュして高速に提供する。"""
 
+    sales = generate_sample_sales_data()
+    if len(sales) > 3000:
+        sales = sales.head(3000).copy()
     return (
-        generate_sample_sales_data(),
+        sales,
         generate_sample_cost_data(),
         generate_sample_subscription_data(),
+    )
+
+
+def ensure_sample_data_cached() -> None:
+    """初回アクセス時にサンプルデータのキャッシュを温める。"""
+
+    if st.session_state.get("sample_data_warmed"):
+        return
+
+    with st.spinner("サンプルデータを初期化しています…"):
+        sales, _, _ = load_sample_data()
+    st.session_state["sample_data_warmed"] = True
+    st.session_state["sample_data_rows"] = int(len(sales))
+
+
+def render_onboarding_wizard(
+    container: Any,
+    *,
+    data_loaded: bool,
+    filters_ready: bool,
+    analysis_ready: bool,
+    sample_checked: bool,
+) -> None:
+    """サイドバー上部にオンボーディングウィザードを描画する。"""
+
+    container.empty()
+    wizard_box = container.container()
+
+    step1_class = "onboarding-step onboarding-step--done" if data_loaded else "onboarding-step"
+    step2_class = (
+        "onboarding-step onboarding-step--done"
+        if data_loaded and filters_ready
+        else "onboarding-step"
+    )
+    step3_class = (
+        "onboarding-step onboarding-step--done"
+        if data_loaded and analysis_ready
+        else "onboarding-step"
+    )
+
+    step1_badge = "✓" if data_loaded else "1"
+    step2_badge = "✓" if data_loaded and filters_ready else "2"
+    step3_badge = "✓" if data_loaded and analysis_ready else "3"
+
+    wizard_box.markdown(
+        f"""
+        <div class="onboarding-wizard">
+            <div class="onboarding-wizard__title">はじめに</div>
+            <div class="{step1_class}">
+                <div class="onboarding-step__header">
+                    <span class="onboarding-step__badge">{step1_badge}</span>
+                    <span class="onboarding-step__title">ステップ1: データを読み込む</span>
+                </div>
+                <div class="onboarding-step__desc">
+                    サンプルデータを読み込むか、自社のCSV/Excelをアップロードしてダッシュボードを起動します。
+                </div>
+            </div>
+            <div class="{step2_class}">
+                <div class="onboarding-step__header">
+                    <span class="onboarding-step__badge">{step2_badge}</span>
+                    <span class="onboarding-step__title">ステップ2: フィルタを設定</span>
+                </div>
+                <div class="onboarding-step__desc">
+                    店舗・期間・チャネルのフィルタを選択すると、分析対象が絞り込まれます。
+                </div>
+            </div>
+            <div class="{step3_class}">
+                <div class="onboarding-step__header">
+                    <span class="onboarding-step__badge">{step3_badge}</span>
+                    <span class="onboarding-step__title">ステップ3: ダッシュボード閲覧</span>
+                </div>
+                <div class="onboarding-step__desc">
+                    KPIや資金繰り、シナリオ分析タブで意思決定に必要な示唆を確認しましょう。
+                </div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    use_sample = wizard_box.checkbox(
+        "サンプルデータを使用して試す",
+        value=sample_checked,
+        key="use_sample_data_checkbox",
+        help="チェックを外すとアップロードした実データのみでダッシュボードを構成します。",
+    )
+    if not use_sample:
+        st.session_state["use_sample_data_checkbox"] = False
+
+    if not data_loaded:
+        if wizard_box.button("サンプルデータを読み込む", key="wizard_load_sample_button"):
+            st.session_state["use_sample_data_checkbox"] = True
+            st.session_state.pop("sample_data_warmed", None)
+            st.session_state.pop("sample_data_rows", None)
+            st.experimental_rerun()
+    else:
+        warmed_rows = st.session_state.get("sample_data_rows")
+        if use_sample and warmed_rows:
+            wizard_box.success(f"サンプルデータ {warmed_rows:,} 行を読み込み済みです。")
+        elif use_sample:
+            wizard_box.success("サンプルデータを読み込み済みです。")
+        else:
+            wizard_box.info("アップロードしたデータを表示しています。")
+
+    wizard_box.caption("自社データはサイドバー下部のアップロードセクションから追加できます。")
+
+
+def render_sidebar_disabled_placeholder() -> None:
+    """データ未投入時にフィルタのプレースホルダを表示する。"""
+
+    st.sidebar.markdown(
+        "<div class='sidebar-disabled' title='データを読み込んでください'>データを読み込むと店舗やチャネルのフィルタが利用できます。</div>",
+        unsafe_allow_html=True,
+    )
+
+
+def render_empty_dashboard_placeholder() -> None:
+    """データがない場合のメイン画面プレースホルダを表示する。"""
+
+    st.markdown(
+        """
+        <div class="empty-dashboard">
+            データがまだ読み込まれていません。
+            <span class="empty-dashboard__hint">サイドバーの「はじめに」でサンプルデータを読み込むか、売上ファイルをアップロードしてください。</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
 
 
@@ -1044,8 +1271,20 @@ def render_intro_section() -> None:
             )
 
     with media_col:
-        st.video(INTRO_VIDEO_URL)
-        st.caption("ダッシュボードの概要（1分ダイジェスト）")
+        st.markdown(
+            """
+            <div class="quick-tutorial">
+                <div class="quick-tutorial__title">60秒クイックガイド</div>
+                <ol>
+                    <li>サイドバーの「はじめに」でサンプルデータを読み込むか、自社データをアップロードします。</li>
+                    <li>対象となる店舗・期間・チャネルを選択して指標を絞り込みます。</li>
+                    <li>ダッシュボードの各タブで売上/KPI/資金繰りを確認し、アラートに基づいて次のアクションを検討します。</li>
+                </ol>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        st.caption("動画の代わりに主要な操作手順をテキストで確認できます。")
 
     st.markdown("---")
 
@@ -5670,6 +5909,12 @@ def render_sidebar_upload_expander(
 def main() -> None:
     init_phase2_session_state()
 
+    onboarding_container = st.sidebar.container()
+
+    if "use_sample_data_checkbox" not in st.session_state:
+        st.session_state["use_sample_data_checkbox"] = True
+    use_sample_data = bool(st.session_state.get("use_sample_data_checkbox", True))
+
     default_theme_mode = st.session_state.get("ui_theme_mode", "dark")
     dark_mode = st.sidebar.toggle(
         "ダークテーマ",
@@ -5686,33 +5931,9 @@ def main() -> None:
     st.sidebar.image(COMPANY_LOGO_URL, width=140)
     st.sidebar.caption("McKinsey inspired analytics suite")
     st.sidebar.header("データ設定")
-    st.sidebar.markdown(
-        """
-        <div class="sidebar-section sidebar-section--emphasis">
-            <div class="sidebar-section__eyebrow">データ準備</div>
-            <div class="sidebar-section__title">サンプルデータの利用</div>
-            <div class="sidebar-section__body">
-                実データがそろっていない場合でも、サンプルデータでダッシュボードの動作を確認できます。
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    use_sample_data = st.sidebar.checkbox(
-        "サンプルデータを使用",
-        value=True,
-        key="use_sample_data_checkbox",
-        help="チェックするとダッシュボードにサンプルデータが読み込まれます。外すとアップロードしたファイルのみで指標を計算します。",
-    )
-    sample_status = (
-        "サンプルデータを読み込み中です。"
-        if use_sample_data
-        else "アップロードしたファイルのみを使用しています。"
-    )
-    st.sidebar.markdown(
-        f"<div class='sidebar-section__status'>{sample_status}</div>",
-        unsafe_allow_html=True,
-    )
+
+    if use_sample_data:
+        ensure_sample_data_cached()
 
     st.sidebar.markdown(
         "<div class='sidebar-subheading'>売上データアップロード</div>",
@@ -5906,6 +6127,14 @@ def main() -> None:
                 automated_reports=automated_reports,
             )
     except Exception:
+        st.session_state["has_loaded_data"] = False
+        render_onboarding_wizard(
+            onboarding_container,
+            data_loaded=False,
+            filters_ready=False,
+            analysis_ready=False,
+            sample_checked=use_sample_data,
+        )
         display_state_message(
             "server_error",
             action=lambda: st.experimental_rerun(),
@@ -5919,6 +6148,17 @@ def main() -> None:
     sales_validation: ValidationReport = data_dict.get("sales_validation", ValidationReport())
 
     if sales_df.empty:
+        st.session_state["has_loaded_data"] = False
+        render_sidebar_disabled_placeholder()
+        render_empty_dashboard_placeholder()
+        render_onboarding_wizard(
+            onboarding_container,
+            data_loaded=False,
+            filters_ready=False,
+            analysis_ready=False,
+            sample_checked=use_sample_data,
+        )
+
         def _enable_sample_data() -> None:
             st.session_state["use_sample_data_checkbox"] = True
             st.experimental_rerun()
@@ -6083,6 +6323,7 @@ def main() -> None:
     selected_channels = st.session_state[channel_state_key]
     selected_categories = st.session_state[category_state_key]
     date_range = current_period
+    filters_ready = bool(selected_channels) and bool(selected_categories)
 
     filter_signature = build_filter_signature(
         selected_store,
@@ -6113,6 +6354,20 @@ def main() -> None:
         selected_categories,
         stores=store_filter,
     )
+    analysis_ready = not filtered_sales.empty
+
+    st.session_state["has_loaded_data"] = True
+    st.session_state["filters_ready"] = filters_ready
+    st.session_state["analysis_ready"] = analysis_ready
+
+    render_onboarding_wizard(
+        onboarding_container,
+        data_loaded=True,
+        filters_ready=filters_ready,
+        analysis_ready=analysis_ready,
+        sample_checked=use_sample_data,
+    )
+
     if filtered_sales.empty:
         display_state_message(
             "filter_no_result",
