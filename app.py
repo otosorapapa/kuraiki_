@@ -300,13 +300,39 @@ SECONDARY_COLOR = "#5A6B7A"
 ACCENT_COLOR = "#1E88E5"
 BACKGROUND_COLOR = "#F7F8FA"
 SURFACE_COLOR = "#FFFFFF"
-SUCCESS_COLOR = "#2E7D32"
+SUCCESS_COLOR = "#37773A"
 WARNING_COLOR = "#D08700"
-ERROR_COLOR = "#C62828"
+ERROR_COLOR = "#BD3A3A"
 TEXT_COLOR = "#1A1A1A"
 MUTED_TEXT_COLOR = "#6B7280"
 APP_FONT_STACK = "'Inter', 'Source Sans 3', 'Noto Sans JP', sans-serif"
 MONO_FONT_STACK = "'Roboto Mono', 'Source Code Pro', monospace"
+
+
+def _hex_to_rgb(hex_color: str) -> Tuple[int, int, int]:
+    """16進カラーコードをRGBタプルに変換する。"""
+
+    hex_color = hex_color.lstrip("#")
+    return tuple(int(hex_color[i : i + 2], 16) for i in (0, 2, 4))
+
+
+def _rgba_from_hex(hex_color: str, alpha: float) -> str:
+    """16進カラーコードと透過率からCSSのrgba文字列を生成する。"""
+
+    r, g, b = _hex_to_rgb(hex_color)
+    alpha_str = f"{alpha:.3f}".rstrip("0").rstrip(".")
+    return f"rgba({r},{g},{b},{alpha_str})"
+
+
+SUCCESS_RGB = _hex_to_rgb(SUCCESS_COLOR)
+WARNING_RGB = _hex_to_rgb(WARNING_COLOR)
+ERROR_RGB = _hex_to_rgb(ERROR_COLOR)
+
+SUCCESS_SURFACE_COLOR = _rgba_from_hex(SUCCESS_COLOR, 0.12)
+WARNING_SURFACE_COLOR = _rgba_from_hex(WARNING_COLOR, 0.128)
+ERROR_SURFACE_COLOR = _rgba_from_hex(ERROR_COLOR, 0.128)
+SUCCESS_GAUGE_RANGE_COLOR = _rgba_from_hex(SUCCESS_COLOR, 0.144)
+ERROR_GAUGE_RANGE_COLOR = _rgba_from_hex(ERROR_COLOR, 0.144)
 
 SALES_SERIES_COLOR = PRIMARY_COLOR
 GROSS_SERIES_COLOR = ACCENT_COLOR
@@ -410,6 +436,12 @@ def inject_design_tokens() -> None:
             --success-color: {SUCCESS_COLOR};
             --warning-color: {WARNING_COLOR};
             --error-color: {ERROR_COLOR};
+            --success-rgb: {",".join(map(str, SUCCESS_RGB))};
+            --warning-rgb: {",".join(map(str, WARNING_RGB))};
+            --error-rgb: {",".join(map(str, ERROR_RGB))};
+            --success-surface: {SUCCESS_SURFACE_COLOR};
+            --warning-surface: {WARNING_SURFACE_COLOR};
+            --error-surface: {ERROR_SURFACE_COLOR};
             --surface-color: {SURFACE_COLOR};
             --background-color: {BACKGROUND_COLOR};
             --text-color: {TEXT_COLOR};
@@ -519,16 +551,42 @@ def inject_design_tokens() -> None:
             font-weight: 600;
         }}
         .status-pill--ok {{
-            background: rgba(46,125,50,0.15);
+            background: var(--success-surface);
             color: var(--success-color);
         }}
         .status-pill--warning {{
-            background: rgba(208,135,0,0.16);
+            background: var(--warning-surface);
             color: var(--warning-color);
         }}
         .status-pill--error {{
-            background: rgba(198,40,40,0.16);
+            background: var(--error-surface);
             color: var(--error-color);
+        }}
+        .kgi-card__delta--up,
+        .kpi-strip__delta--up {{
+            color: var(--success-color);
+        }}
+        .kgi-card__delta--down,
+        .kpi-strip__delta--down {{
+            color: var(--error-color);
+        }}
+        .alert-banner {{
+            border-radius: 12px;
+            padding: 1rem 1.25rem;
+            margin-bottom: 1rem;
+            border: 1px solid transparent;
+            background: var(--surface-color);
+            color: var(--text-color);
+        }}
+        .alert-banner--warning {{
+            background: var(--warning-surface);
+            border-color: rgba(var(--warning-rgb), 0.35);
+            color: var(--warning-color);
+        }}
+        .alert-banner--ok {{
+            background: var(--success-surface);
+            border-color: rgba(var(--success-rgb), 0.35);
+            color: var(--success-color);
         }}
         .data-status-grid {{
             display: grid;
@@ -4269,8 +4327,8 @@ def render_profit_meter(pl_result: pd.DataFrame, base_pl: Dict[str, float]) -> N
     steps = []
     if break_even and gauge_upper > break_even:
         steps = [
-            {"range": [0, break_even], "color": "rgba(198,40,40,0.18)"},
-            {"range": [break_even, gauge_upper], "color": "rgba(46,125,50,0.18)"},
+            {"range": [0, break_even], "color": ERROR_GAUGE_RANGE_COLOR},
+            {"range": [break_even, gauge_upper], "color": SUCCESS_GAUGE_RANGE_COLOR},
         ]
 
     indicator = go.Figure(
