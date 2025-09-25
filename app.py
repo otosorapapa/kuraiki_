@@ -334,6 +334,9 @@ NUMERIC_FONT_STACK = (
 )
 MONO_FONT_STACK = "'Roboto Mono', 'Source Code Pro', monospace"
 
+COMPANY_LOGO_URL = "https://raw.githubusercontent.com/streamlit/brand/main/logos/mark/streamlit-mark-color.png"
+INTRO_VIDEO_URL = "https://www.youtube.com/embed/vzAn5U81ELs"
+
 COLOR_TOKENS: Dict[str, str] = {
     "primary": PRIMARY_COLOR,
     "secondary": SECONDARY_COLOR,
@@ -957,6 +960,56 @@ def remember_last_uploaded_files(
         st.session_state["last_uploaded"] = unique_names
 
 
+@st.cache_data(ttl=24 * 60 * 60)
+def load_sample_data() -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """サンプルデータをキャッシュして高速に提供する。"""
+
+    return (
+        generate_sample_sales_data(),
+        generate_sample_cost_data(),
+        generate_sample_subscription_data(),
+    )
+
+
+def render_intro_section() -> None:
+    """アプリの目的と操作ガイドをまとめた導入セクションを表示する。"""
+
+    st.title("意思決定支援ダッシュボード")
+    st.caption(
+        "くらしいきいき社の経営データを統合し、現場の意思決定を素早く支援するためのダッシュボードです。"
+    )
+
+    lead_col, media_col = st.columns([2, 1])
+    with lead_col:
+        st.markdown(
+            """
+            **初めての方へ**: サイドバーからサンプルデータを読み込むか、自社の売上・コストデータをアップロードすると、
+            売上推移や粗利、資金繰りまで一気に可視化できます。経営会議で使える示唆を最小限の操作で得られるように設計されています。
+            """
+        )
+        st.markdown(
+            """
+            1. 左側のサイドバーで対象期間とチャネルを選択します。
+            2. 売上や固定費などを設定すると、主要KPI・キャッシュフロー・アラートが自動で更新されます。
+            3. 必要に応じてタブで詳細分析（売上 / 粗利 / 在庫 / 資金 / KPI）を切り替えてください。
+            """
+        )
+        with st.expander("このアプリで実現できること", expanded=False):
+            st.markdown(
+                """
+                - **意思決定の高速化**: 店舗やチャネル別の売上と粗利をリアルタイムに把握できます。
+                - **ボトルネックの特定**: KPIアラートで粗利率や在庫回転日数の悪化を早期に察知します。
+                - **経営シナリオの比較**: 固定費や投資額を調整してPLシミュレーションを即座に確認できます。
+                """
+            )
+
+    with media_col:
+        st.video(INTRO_VIDEO_URL)
+        st.caption("ダッシュボードの概要（1分ダイジェスト）")
+
+    st.markdown("---")
+
+
 def load_data(
     use_sample: bool,
     uploaded_sales: Dict[str, List],
@@ -974,9 +1027,10 @@ def load_data(
     validation_report = ValidationReport()
 
     if use_sample:
-        sales_frames.append(generate_sample_sales_data())
-        cost_frames.append(generate_sample_cost_data())
-        subscription_frames.append(generate_sample_subscription_data())
+        sample_sales, sample_cost, sample_subscription = load_sample_data()
+        sales_frames.append(sample_sales)
+        cost_frames.append(sample_cost)
+        subscription_frames.append(sample_subscription)
 
     loaded_sales, uploaded_validation = load_sales_files(uploaded_sales)
     validation_report.extend(uploaded_validation)
@@ -4941,6 +4995,10 @@ def render_sidebar_upload_expander(
 def main() -> None:
     inject_mckinsey_style()
 
+    render_intro_section()
+
+    st.sidebar.image(COMPANY_LOGO_URL, width=140)
+    st.sidebar.caption("McKinsey inspired analytics suite")
     st.sidebar.header("データ設定")
     st.sidebar.markdown(
         """
@@ -5096,12 +5154,14 @@ def main() -> None:
         value=float(DEFAULT_FIXED_COST),
         step=50_000.0,
         format="%.0f",
+        help="固定費に該当する販管費の合計額です。人件費・地代家賃・システム利用料などを含めて設定します。",
     )
     starting_cash = st.sidebar.number_input(
         "現在の現金残高（円）",
         value=3_000_000.0,
         step=100_000.0,
         format="%.0f",
+        help="ダッシュボード表示時点の現預金残高です。資金繰りの初期値として利用されます。",
     )
 
     with st.sidebar.expander("KPIの手入力（任意）"):
@@ -5270,6 +5330,7 @@ def main() -> None:
         min_value=min_date,
         max_value=max_date,
         key=period_state_key,
+        help="ダッシュボードに表示する対象期間です。開始日と終了日を指定してください。",
     )
     raw_period = st.session_state.get(period_state_key)
     current_period = normalize_period_state_value(
@@ -5310,6 +5371,7 @@ def main() -> None:
         options=available_categories,
         default=st.session_state[category_state_key] if available_categories else [],
         key=category_state_key,
+        help="カテゴリ選択は粗利・在庫の分析タブにも共有されます。",
     )
 
     freq_state_key = FILTER_STATE_KEYS["freq"]
@@ -5320,6 +5382,7 @@ def main() -> None:
         options=freq_labels,
         index=freq_labels.index(st.session_state[freq_state_key]),
         key=freq_state_key,
+        help="売上やKPIの集計粒度を選べます。月次・週次・四半期などの粒度に対応しています。",
     )
     selected_freq = freq_lookup[selected_granularity_label]
 
