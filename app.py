@@ -398,8 +398,8 @@ def apply_altair_theme(chart: alt.Chart) -> alt.Chart:
     )
 
 
-def inject_design_tokens() -> None:
-    """デザイン・トークンと共通スタイルをアプリに適用する。"""
+def inject_mckinsey_style() -> None:
+    """デザイン・トークンとマッキンゼー風スタイルをアプリに適用する。"""
 
     st.markdown(
         f"""
@@ -416,14 +416,26 @@ def inject_design_tokens() -> None:
             --muted-text-color: {MUTED_TEXT_COLOR};
             --font-family: {APP_FONT_STACK};
         }}
-        html, body, [data-testid="stAppViewContainer"] {{
+        html, body {{
+            background: var(--background-color);
             background-color: var(--background-color);
+            background-image: none;
             color: var(--text-color);
             font-family: {APP_FONT_STACK};
+        }}
+        .stApp, [data-testid="stAppViewContainer"] {{
+            background: var(--background-color);
+            background-color: var(--background-color);
+            background-image: none;
+            color: var(--text-color);
         }}
         main .block-container {{
             max-width: 1200px;
             padding: 2rem 2.5rem 3rem;
+            color: var(--text-color);
+        }}
+        main .block-container p {{
+            color: var(--text-color);
         }}
         .surface-card {{
             background: var(--surface-color);
@@ -431,6 +443,60 @@ def inject_design_tokens() -> None:
             padding: 1.5rem;
             border: 1px solid rgba(11,31,59,0.08);
             box-shadow: 0 12px 24px rgba(11,31,59,0.05);
+        }}
+        .hero-panel {{
+            background: linear-gradient(135deg, rgba(11,31,59,0.9), rgba(30,136,229,0.75));
+            border-radius: 16px;
+            padding: 2.2rem 2.4rem;
+            box-shadow: 0 24px 48px rgba(11,31,59,0.18);
+            color: #ffffff;
+            margin-bottom: 1.75rem;
+        }}
+        .hero-title {{
+            font-size: 1.65rem;
+            font-weight: 700;
+            margin-bottom: 0.6rem;
+        }}
+        .hero-subtitle {{
+            font-size: 1rem;
+            margin-bottom: 1.2rem;
+            color: rgba(255,255,255,0.82);
+        }}
+        .hero-meta {{
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.6rem;
+            margin-bottom: 1.2rem;
+        }}
+        .hero-badge {{
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            padding: 0.35rem 0.75rem;
+            border-radius: 999px;
+            background: rgba(255,255,255,0.18);
+            color: #ffffff;
+            font-size: 0.85rem;
+            font-weight: 600;
+        }}
+        .hero-badge--alert {{
+            background: rgba(208,135,0,0.22);
+        }}
+        .hero-badge--accent {{
+            background: rgba(30,136,229,0.28);
+        }}
+        .hero-persona {{
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.45rem;
+        }}
+        .hero-chip {{
+            background: rgba(255,255,255,0.15);
+            color: rgba(255,255,255,0.9);
+            padding: 0.35rem 0.85rem;
+            border-radius: 999px;
+            font-size: 0.8rem;
+            font-weight: 600;
         }}
         .chart-section {{
             background: var(--surface-color);
@@ -610,6 +676,9 @@ def inject_design_tokens() -> None:
             }}
             .kpi-strip {{
                 grid-template-columns: 1fr;
+            }}
+            .hero-panel {{
+                padding: 1.8rem 1.6rem;
             }}
         }}
         </style>
@@ -4523,7 +4592,7 @@ def render_sidebar_upload_expander(
 
 
 def main() -> None:
-    inject_design_tokens()
+    inject_mckinsey_style()
 
     st.sidebar.header("データ設定")
     st.sidebar.markdown(
