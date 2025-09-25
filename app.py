@@ -3640,7 +3640,9 @@ def render_sales_tab(
                 with toolbar[0]:
                     download_button_from_df("CSV出力", display_df, "sales_detail.csv")
                 with toolbar[1]:
-                    st.button("PDF出力 (準備中)", disabled=True)
+                    st.button(
+                        "PDF出力 (準備中)", disabled=True, key="gross_detail_pdf_placeholder"
+                    )
 
 
 def render_gross_tab(
@@ -3893,7 +3895,11 @@ def render_gross_tab(
                 with toolbar[0]:
                     download_button_from_df("CSV出力", detail_df, "gross_profit_detail.csv")
                 with toolbar[1]:
-                    st.button("PDF出力 (準備中)", disabled=True)
+                    st.button(
+                        "PDF出力 (準備中)",
+                        disabled=True,
+                        key="gross_transition_pdf_placeholder",
+                    )
 
 
 def render_store_comparison_chart(analysis_df: pd.DataFrame, fixed_cost: float) -> None:
@@ -4329,7 +4335,11 @@ def render_inventory_tab(
                 with toolbar[0]:
                     download_button_from_df("CSV出力", detail_df, "inventory_overview.csv")
                 with toolbar[1]:
-                    st.button("PDF出力 (準備中)", disabled=True)
+                    st.button(
+                        "PDF出力 (準備中)",
+                        disabled=True,
+                        key="gross_summary_pdf_placeholder",
+                    )
 
 
 def render_cash_tab(
@@ -4492,7 +4502,11 @@ def render_cash_tab(
             with toolbar[0]:
                 download_button_from_df("CSV出力", display_df, "cash_flow_plan.csv")
             with toolbar[1]:
-                st.button("PDF出力 (準備中)", disabled=True)
+                st.button(
+                    "PDF出力 (準備中)",
+                    disabled=True,
+                    key="gross_profit_pdf_placeholder",
+                )
 
 
 def render_fixed_cost_breakdown(
