@@ -184,6 +184,50 @@ FILTER_STATE_KEYS = {
     "signature": "filter_signature",
 }
 
+
+def widget_key_for(state_key: str) -> str:
+    """アプリ状態に対応するウィジェットkeyを生成する。"""
+
+    return f"_{state_key}_widget"
+
+
+def _clone_state_value(value: Any) -> Any:
+    """リストなどのミュータブル値をコピーし、副作用を防ぐ。"""
+
+    if isinstance(value, list):
+        return list(value)
+    if isinstance(value, dict):
+        return dict(value)
+    if isinstance(value, tuple):
+        return tuple(value)
+    return value
+
+
+def set_state_and_widget(state_key: str, value: Any) -> None:
+    """状態と対応するウィジェット値を同期して更新する。"""
+
+    cloned_value = _clone_state_value(value)
+    st.session_state[state_key] = cloned_value
+    st.session_state[widget_key_for(state_key)] = _clone_state_value(cloned_value)
+
+
+def ensure_widget_mirror(state_key: str) -> str:
+    """状態の値を反映したウィジェットkeyを初期化する。"""
+
+    widget_key = widget_key_for(state_key)
+    if widget_key not in st.session_state:
+        st.session_state[widget_key] = _clone_state_value(st.session_state.get(state_key))
+    return widget_key
+
+
+def update_state_from_widget(state_key: str) -> None:
+    """ウィジェット値を読み取りアプリ状態に反映する。"""
+
+    widget_key = widget_key_for(state_key)
+    if widget_key in st.session_state:
+        st.session_state[state_key] = _clone_state_value(st.session_state[widget_key])
+
+
 STATE_MESSAGES: Dict[str, Dict[str, Any]] = {
     "data_unloaded": {
         "type": "warning",
@@ -1200,19 +1244,28 @@ def render_onboarding_wizard(
     )
 
     desired_sample_state = bool(sample_checked)
-    if st.session_state.get("use_sample_data_checkbox") != desired_sample_state:
-        st.session_state["use_sample_data_checkbox"] = desired_sample_state
+    if st.session_state.get("use_sample_data") != desired_sample_state:
+        set_state_and_widget("use_sample_data", desired_sample_state)
 
-    use_sample = wizard_box.checkbox(
+    sample_widget_key = ensure_widget_mirror("use_sample_data")
+
+    def _toggle_sample_checkbox() -> None:
+        update_state_from_widget("use_sample_data")
+        trigger_rerun()
+
+    wizard_box.checkbox(
         "サンプルデータを使用して試す",
-        value=desired_sample_state,
-        key="use_sample_data_checkbox",
+        value=bool(st.session_state.get("use_sample_data", True)),
+        key=sample_widget_key,
         help="チェックを外すとアップロードした実データのみでダッシュボードを構成します。",
+        on_change=_toggle_sample_checkbox,
     )
+
+    use_sample = bool(st.session_state.get("use_sample_data", True))
 
     if not data_loaded:
         if wizard_box.button("サンプルデータを読み込む", key="wizard_load_sample_button"):
-            st.session_state["use_sample_data_checkbox"] = True
+            set_state_and_widget("use_sample_data", True)
             st.session_state.pop("sample_data_warmed", None)
             st.session_state.pop("sample_data_rows", None)
             trigger_rerun()
@@ -1481,10 +1534,7 @@ def reset_filters(defaults: Dict[str, Any]) -> None:
     """フィルタ関連のセッション状態を初期値に戻す。"""
 
     for key, value in defaults.items():
-        if isinstance(value, list):
-            st.session_state[key] = list(value)
-        else:
-            st.session_state[key] = value
+        set_state_and_widget(key, value)
     trigger_rerun()
 
 
@@ -5923,13 +5973,15 @@ def main() -> None:
     init_phase2_session_state()
 
     if st.session_state.pop("pending_enable_sample_data", False):
-        st.session_state["use_sample_data_checkbox"] = True
+        set_state_and_widget("use_sample_data", True)
 
     onboarding_container = st.sidebar.container()
 
-    if "use_sample_data_checkbox" not in st.session_state:
-        st.session_state["use_sample_data_checkbox"] = True
-    use_sample_data = bool(st.session_state.get("use_sample_data_checkbox", True))
+    if "use_sample_data" not in st.session_state:
+        set_state_and_widget("use_sample_data", True)
+    else:
+        ensure_widget_mirror("use_sample_data")
+    use_sample_data = bool(st.session_state.get("use_sample_data", True))
 
     default_theme_mode = st.session_state.get("ui_theme_mode", "dark")
     dark_mode = st.sidebar.toggle(
@@ -6228,23 +6280,16 @@ def main() -> None:
     }
 
     store_state_key = FILTER_STATE_KEYS["store"]
-    if store_state_key not in st.session_state or st.session_state[store_state_key] not in store_options:
-        st.session_state[store_state_key] = default_store
-    store_index = (
-        store_options.index(st.session_state[store_state_key])
-        if st.session_state[store_state_key] in store_options
-        else 0
-    )
-    selected_store = st.sidebar.selectbox(
-        "店舗選択",
-        options=store_options,
-        index=store_index,
-        key=store_state_key,
-        help="最後に選択した店舗は次回アクセス時も自動で設定されます。",
-    )
+    current_store_state = st.session_state.get(store_state_key)
+    if current_store_state not in store_options:
+        current_store_state = default_store
+    set_state_and_widget(store_state_key, current_store_state)
+    store_widget_key = widget_key_for(store_state_key)
+    current_store = st.session_state[store_state_key]
+    store_index = store_options.index(current_store) if current_store in store_options else 0
 
-    if selected_store and selected_store != "全社" and "store" in sales_df.columns:
-        store_sales_df = sales_df[sales_df["store"] == selected_store].copy()
+    if current_store and current_store != "全社" and "store" in sales_df.columns:
+        store_sales_df = sales_df[sales_df["store"] == current_store].copy()
     else:
         store_sales_df = sales_df.copy()
 
@@ -6256,7 +6301,7 @@ def main() -> None:
         min_date, max_date = max_date, min_date
 
     period_state_key = FILTER_STATE_KEYS["period"]
-    stored_period = st.session_state.get(period_state_key)
+    stored_period = st.session_state.get(period_state_key, global_default_period)
     default_period = suggest_default_period(min_date, max_date)
     normalized_period_state = normalize_period_state_value(
         stored_period,
@@ -6264,68 +6309,95 @@ def main() -> None:
         max_date,
         default_period,
     )
-    st.session_state[period_state_key] = normalized_period_state
-
-    st.sidebar.date_input(
-        "表示期間（開始日 / 終了日）",
-        value=st.session_state[period_state_key],
-        min_value=min_date,
-        max_value=max_date,
-        key=period_state_key,
-        help="ダッシュボードに表示する対象期間です。開始日と終了日を指定してください。",
-    )
-    raw_period = st.session_state.get(period_state_key)
-    current_period = normalize_period_state_value(
-        raw_period,
-        min_date,
-        max_date,
-        default_period,
-    )
+    set_state_and_widget(period_state_key, normalized_period_state)
+    period_widget_key = widget_key_for(period_state_key)
 
     available_channels = sorted(store_sales_df["channel"].dropna().unique().tolist())
     channel_state_key = FILTER_STATE_KEYS["channels"]
-    if channel_state_key not in st.session_state:
-        st.session_state[channel_state_key] = available_channels
-    else:
-        preserved_channels = [ch for ch in st.session_state[channel_state_key] if ch in available_channels]
-        if available_channels and not preserved_channels:
-            preserved_channels = available_channels
-        st.session_state[channel_state_key] = preserved_channels
-    selected_channels = st.sidebar.multiselect(
-        "表示するチャネル",
-        options=available_channels,
-        default=st.session_state[channel_state_key] if available_channels else [],
-        key=channel_state_key,
-        help="チャネル選択は関連レポートでも共有されます。",
-    )
+    preserved_channels = [
+        ch for ch in st.session_state.get(channel_state_key, []) if ch in available_channels
+    ]
+    if available_channels and not preserved_channels:
+        preserved_channels = available_channels
+    set_state_and_widget(channel_state_key, preserved_channels)
+    channel_widget_key = widget_key_for(channel_state_key)
 
     available_categories = sorted(store_sales_df["category"].dropna().unique().tolist())
     category_state_key = FILTER_STATE_KEYS["categories"]
-    if category_state_key not in st.session_state:
-        st.session_state[category_state_key] = available_categories
-    else:
-        preserved_categories = [cat for cat in st.session_state[category_state_key] if cat in available_categories]
-        if available_categories and not preserved_categories:
-            preserved_categories = available_categories
-        st.session_state[category_state_key] = preserved_categories
-    selected_categories = st.sidebar.multiselect(
-        "表示するカテゴリ",
-        options=available_categories,
-        default=st.session_state[category_state_key] if available_categories else [],
-        key=category_state_key,
-        help="カテゴリ選択は粗利・在庫の分析タブにも共有されます。",
-    )
+    preserved_categories = [
+        cat for cat in st.session_state.get(category_state_key, []) if cat in available_categories
+    ]
+    if available_categories and not preserved_categories:
+        preserved_categories = available_categories
+    set_state_and_widget(category_state_key, preserved_categories)
+    category_widget_key = widget_key_for(category_state_key)
 
     freq_state_key = FILTER_STATE_KEYS["freq"]
-    if freq_state_key not in st.session_state or st.session_state[freq_state_key] not in freq_lookup:
-        st.session_state[freq_state_key] = default_freq_label
-    selected_granularity_label = st.sidebar.selectbox(
-        "ダッシュボード表示粒度",
-        options=freq_labels,
-        index=freq_labels.index(st.session_state[freq_state_key]),
-        key=freq_state_key,
-        help="売上やKPIの集計粒度を選べます。月次・週次・四半期などの粒度に対応しています。",
+    current_freq_label = st.session_state.get(freq_state_key, default_freq_label)
+    if current_freq_label not in freq_lookup:
+        current_freq_label = default_freq_label
+    set_state_and_widget(freq_state_key, current_freq_label)
+    freq_widget_key = widget_key_for(freq_state_key)
+    freq_index = (
+        freq_labels.index(st.session_state[freq_state_key])
+        if st.session_state[freq_state_key] in freq_labels
+        else 0
     )
+
+    filter_state_keys = [
+        store_state_key,
+        period_state_key,
+        channel_state_key,
+        category_state_key,
+        freq_state_key,
+    ]
+
+    def _apply_filter_form() -> None:
+        for key in filter_state_keys:
+            update_state_from_widget(key)
+        trigger_rerun()
+
+    with st.sidebar.form("sidebar_filter_form"):
+        st.selectbox(
+            "店舗選択",
+            options=store_options,
+            index=store_index,
+            key=store_widget_key,
+            help="最後に選択した店舗は次回アクセス時も自動で設定されます。",
+        )
+        st.date_input(
+            "表示期間（開始日 / 終了日）",
+            value=st.session_state[period_state_key],
+            min_value=min_date,
+            max_value=max_date,
+            key=period_widget_key,
+            help="ダッシュボードに表示する対象期間です。開始日と終了日を指定してください。",
+        )
+        st.multiselect(
+            "表示するチャネル",
+            options=available_channels,
+            default=st.session_state[channel_state_key] if available_channels else [],
+            key=channel_widget_key,
+            help="チャネル選択は関連レポートでも共有されます。",
+        )
+        st.multiselect(
+            "表示するカテゴリ",
+            options=available_categories,
+            default=st.session_state[category_state_key] if available_categories else [],
+            key=category_widget_key,
+            help="カテゴリ選択は粗利・在庫の分析タブにも共有されます。",
+        )
+        st.selectbox(
+            "ダッシュボード表示粒度",
+            options=freq_labels,
+            index=freq_index,
+            key=freq_widget_key,
+            help="売上やKPIの集計粒度を選べます。月次・週次・四半期などの粒度に対応しています。",
+        )
+        st.form_submit_button("フィルタを適用", on_click=_apply_filter_form)
+
+    current_period = st.session_state[period_state_key]
+    selected_granularity_label = st.session_state[freq_state_key]
     selected_freq = freq_lookup[selected_granularity_label]
 
     st.sidebar.markdown("---")
