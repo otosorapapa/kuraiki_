@@ -6,11 +6,13 @@ import html
 import hashlib
 import importlib
 import io
+import json
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
 import calendar
 from datetime import date, datetime, timedelta
+from pathlib import Path
 import traceback
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, TypeVar, Union
 from urllib.parse import parse_qsl
@@ -191,6 +193,177 @@ FILTER_STATE_KEYS = {
     "freq": "filter_frequency",
     "signature": "filter_signature",
 }
+
+FILTER_PRESET_STATE_KEY = "saved_filters"
+FILTER_PRESET_NAME_WIDGET_KEY = "filter_preset_name"
+FILTER_PRESET_SELECT_WIDGET_KEY = "filter_preset_select"
+FILTER_PRESET_STORAGE_PATH = Path(".streamlit/filter_presets.json")
+
+
+def _serialize_date_for_storage(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    if hasattr(value, "isoformat"):
+        try:
+            return value.isoformat()
+        except Exception:
+            return str(value)
+    return str(value)
+
+
+def _parse_stored_date(value: Any) -> Optional[date]:
+    if value in (None, ""):
+        return None
+    if isinstance(value, date) and not isinstance(value, datetime):
+        return value
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, (int, float)):
+        try:
+            return datetime.fromtimestamp(value).date()
+        except Exception:
+            return None
+    if isinstance(value, str):
+        try:
+            return date.fromisoformat(value)
+        except ValueError:
+            try:
+                return datetime.fromisoformat(value).date()
+            except ValueError:
+                return None
+    return None
+
+
+def _serialize_filter_signature(signature: Tuple[Any, ...]) -> List[Any]:
+    serialized: List[Any] = []
+    for item in signature:
+        if isinstance(item, tuple):
+            serialized.append(list(item))
+        else:
+            serialized.append(item)
+    return serialized
+
+
+def _deserialize_filter_signature(value: Any) -> Optional[Tuple[Any, ...]]:
+    if not isinstance(value, (list, tuple)):
+        return None
+    unpacked = list(value)
+    while len(unpacked) < 6:
+        unpacked.append(None)
+    store, channels, categories, start, end, freq = unpacked[:6]
+    channels_tuple: Tuple[str, ...] = tuple(channels or []) if isinstance(channels, (list, tuple)) else tuple()
+    categories_tuple: Tuple[str, ...] = (
+        tuple(categories or []) if isinstance(categories, (list, tuple)) else tuple()
+    )
+    return (
+        store,
+        channels_tuple,
+        categories_tuple,
+        start,
+        end,
+        freq,
+    )
+
+
+def _serialize_filter_values_for_storage(values: Dict[str, Any]) -> Dict[str, Any]:
+    period_value = values.get("period")
+    if isinstance(period_value, (list, tuple)) and len(period_value) == 2:
+        start_value = _serialize_date_for_storage(period_value[0])
+        end_value = _serialize_date_for_storage(period_value[1])
+    else:
+        start_value = _serialize_date_for_storage(period_value)
+        end_value = _serialize_date_for_storage(period_value)
+    return {
+        "store": values.get("store"),
+        "channels": list(values.get("channels", []) or []),
+        "categories": list(values.get("categories", []) or []),
+        "period": [start_value, end_value],
+        "freq": values.get("freq"),
+    }
+
+
+def _deserialize_filter_values_from_storage(values: Any) -> Dict[str, Any]:
+    if not isinstance(values, dict):
+        return {
+            "store": None,
+            "channels": [],
+            "categories": [],
+            "period": None,
+            "freq": None,
+        }
+    stored_period = values.get("period")
+    start: Optional[date]
+    end: Optional[date]
+    if isinstance(stored_period, (list, tuple)) and len(stored_period) == 2:
+        start = _parse_stored_date(stored_period[0])
+        end = _parse_stored_date(stored_period[1])
+    else:
+        start = _parse_stored_date(stored_period)
+        end = _parse_stored_date(stored_period)
+    period: Optional[Tuple[date, date]]
+    if start and end:
+        period = (start, end)
+    else:
+        period = None
+    return {
+        "store": values.get("store"),
+        "channels": list(values.get("channels", []) or []),
+        "categories": list(values.get("categories", []) or []),
+        "period": period,
+        "freq": values.get("freq"),
+    }
+
+
+def load_saved_filter_presets() -> Dict[str, Dict[str, Any]]:
+    if not FILTER_PRESET_STORAGE_PATH.exists():
+        return {}
+    try:
+        with FILTER_PRESET_STORAGE_PATH.open("r", encoding="utf-8") as fp:
+            raw_payload = json.load(fp)
+    except Exception as exc:
+        logger.warning("Failed to load saved filters: %s", exc)
+        return {}
+    loaded: Dict[str, Dict[str, Any]] = {}
+    if isinstance(raw_payload, dict):
+        for name, payload in raw_payload.items():
+            if not isinstance(name, str):
+                continue
+            if not isinstance(payload, dict):
+                continue
+            signature = _deserialize_filter_signature(payload.get("signature"))
+            values = _deserialize_filter_values_from_storage(payload.get("values"))
+            loaded[name] = {
+                "signature": signature,
+                "values": values,
+            }
+    return loaded
+
+
+def save_filter_presets_to_disk(presets: Dict[str, Dict[str, Any]]) -> None:
+    serializable: Dict[str, Any] = {}
+    for name, payload in presets.items():
+        signature = payload.get("signature")
+        values = payload.get("values", {})
+        serializable[name] = {
+            "signature": _serialize_filter_signature(signature or ()),
+            "values": _serialize_filter_values_for_storage(values),
+        }
+    try:
+        FILTER_PRESET_STORAGE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with FILTER_PRESET_STORAGE_PATH.open("w", encoding="utf-8") as fp:
+            json.dump(serializable, fp, ensure_ascii=False, indent=2)
+    except Exception as exc:
+        logger.warning("Failed to persist saved filters: %s", exc)
+
+
+def ensure_saved_filters_loaded() -> Dict[str, Dict[str, Any]]:
+    if FILTER_PRESET_STATE_KEY not in st.session_state:
+        st.session_state[FILTER_PRESET_STATE_KEY] = load_saved_filter_presets()
+    return st.session_state[FILTER_PRESET_STATE_KEY]
 
 
 def widget_key_for(state_key: str) -> str:
@@ -1905,6 +2078,141 @@ def render_global_filter_bar(
             if st.button("セッション状態を初期化", key="clear_session_button"):
                 st.session_state.clear()
                 trigger_rerun()
+
+        saved_filters = ensure_saved_filters_loaded()
+        st.divider()
+        st.markdown("#### フィルタプリセット")
+
+        preset_name_input = st.text_input(
+            "プリセット名",
+            key=FILTER_PRESET_NAME_WIDGET_KEY,
+            placeholder="例: 月次_主要チャネル",
+            help="現在の絞り込み条件を保存する名称を入力してください。",
+        )
+
+        def _collect_current_filter_values() -> Dict[str, Any]:
+            current_store = st.session_state.get(store_state_key)
+            current_channels = list(st.session_state.get(channel_state_key, []) or [])
+            current_categories = list(st.session_state.get(category_state_key, []) or [])
+            current_period = st.session_state.get(period_state_key)
+            current_freq = st.session_state.get(freq_state_key)
+            signature = build_filter_signature(
+                current_store,
+                current_channels,
+                current_categories,
+                current_period,
+                current_freq,
+            )
+            values = {
+                "store": current_store,
+                "channels": current_channels,
+                "categories": current_categories,
+                "period": current_period,
+                "freq": current_freq,
+            }
+            return {"signature": signature, "values": values}
+
+        save_col, _, _ = st.columns([1, 1, 1])
+        with save_col:
+            if st.button("保存", key="save_filter_preset_button"):
+                preset_name = (preset_name_input or "").strip()
+                if not preset_name:
+                    st.warning("プリセット名を入力してください。")
+                else:
+                    collected = _collect_current_filter_values()
+                    saved_filters[preset_name] = collected
+                    save_filter_presets_to_disk(saved_filters)
+                    st.session_state[FILTER_PRESET_NAME_WIDGET_KEY] = ""
+                    st.session_state[FILTER_PRESET_SELECT_WIDGET_KEY] = preset_name
+                    st.success(f"『{preset_name}』として保存しました。")
+
+        preset_placeholder = "保存済みプリセットを選択"
+        preset_select_key = FILTER_PRESET_SELECT_WIDGET_KEY
+        preset_options = [preset_placeholder] + list(saved_filters.keys())
+        current_selection = st.session_state.get(preset_select_key, preset_placeholder)
+        if current_selection not in preset_options:
+            current_selection = preset_placeholder
+            st.session_state[preset_select_key] = preset_placeholder
+        selected_preset = st.selectbox(
+            "保存済みプリセット",
+            options=preset_options,
+            index=preset_options.index(current_selection),
+            key=preset_select_key,
+            help="過去に保存したプリセットを呼び出して適用できます。",
+        )
+
+        def _apply_saved_preset(name: str) -> None:
+            preset_data = saved_filters.get(name)
+            if not preset_data:
+                st.warning("選択したプリセットが見つかりません。")
+                return
+            values = preset_data.get("values", {})
+
+            store_value = values.get("store")
+            if store_value not in store_options and store_options:
+                store_value = store_options[0]
+            set_state_and_widget(store_state_key, store_value)
+
+            channel_value = [
+                ch
+                for ch in values.get("channels", [])
+                if not channel_options or ch in channel_options
+            ]
+            if not channel_value and channel_options:
+                channel_value = [ch for ch in channel_options]
+            set_state_and_widget(channel_state_key, channel_value)
+
+            category_value = [
+                cat
+                for cat in values.get("categories", [])
+                if not category_options or cat in category_options
+            ]
+            if not category_value and category_options:
+                category_value = [cat for cat in category_options]
+            set_state_and_widget(category_state_key, category_value)
+
+            period_value = values.get("period")
+            default_period = default_filters.get(period_state_key, (min_date, max_date))
+            if isinstance(period_value, (list, tuple)) and len(period_value) == 2:
+                start_candidate, end_candidate = period_value
+            else:
+                start_candidate = period_value
+                end_candidate = period_value
+            normalized_period = normalize_period_state_value(
+                (start_candidate, end_candidate),
+                min_date,
+                max_date,
+                default_period,
+            )
+            set_state_and_widget(period_state_key, normalized_period)
+
+            freq_value = values.get("freq")
+            if freq_value not in freq_labels and freq_labels:
+                freq_value = freq_labels[freq_index]
+            set_state_and_widget(freq_state_key, freq_value)
+
+            trigger_rerun()
+
+        selected_valid = selected_preset != preset_placeholder
+        action_cols = st.columns(2)
+        with action_cols[0]:
+            if st.button(
+                "適用",
+                key="apply_filter_preset_button",
+                disabled=not selected_valid,
+            ) and selected_valid:
+                _apply_saved_preset(selected_preset)
+        with action_cols[1]:
+            if st.button(
+                "削除",
+                key="delete_filter_preset_button",
+                disabled=not selected_valid,
+            ) and selected_valid:
+                if selected_preset in saved_filters:
+                    del saved_filters[selected_preset]
+                    save_filter_presets_to_disk(saved_filters)
+                    st.session_state[preset_select_key] = preset_placeholder
+                    st.success(f"『{selected_preset}』を削除しました。")
 
 
 def jump_to_section(section_key: str) -> None:
@@ -7012,6 +7320,7 @@ def render_sales_upload_wizard(
 
 def main() -> None:
     init_phase2_session_state()
+    ensure_saved_filters_loaded()
 
     if st.session_state.pop("pending_enable_sample_data", False):
         set_state_and_widget("use_sample_data", True)
