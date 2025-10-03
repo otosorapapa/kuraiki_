@@ -320,6 +320,8 @@ SALES_UPLOAD_CONFIGS: List[Dict[str, str]] = [
     },
 ]
 
+CHANNEL_ASSIGNMENT_PLACEHOLDER = "チャネルを選択"
+
 ANCILLARY_UPLOAD_CONFIGS: List[Dict[str, Any]] = [
     {
         "key": "cost",
@@ -1190,6 +1192,31 @@ def inject_mckinsey_style(*, dark_mode: bool = False) -> None:
         .quick-tutorial li {{
             font-size: 0.85rem;
             margin-bottom: 0.45rem;
+        }}
+        .sidebar-wizard-title {{
+            font-weight: 700;
+            font-size: 0.95rem;
+            margin-bottom: 0.4rem;
+        }}
+        .wizard-file-item {{
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.35rem 0;
+            border-bottom: 1px dashed rgba(11,31,59,0.1);
+            font-size: 0.82rem;
+        }}
+        .wizard-file-item:last-of-type {{
+            border-bottom: none;
+        }}
+        .wizard-file-item__name {{
+            flex: 1;
+            margin-right: 0.5rem;
+            word-break: break-all;
+        }}
+        .wizard-file-item__size {{
+            color: var(--muted-text-color);
+            font-size: 0.75rem;
         }}
         </style>
         """,
@@ -6422,6 +6449,170 @@ def render_sidebar_upload_expander(
     return uploaded
 
 
+def _assignment_widget_key(file_name: str) -> str:
+    """ファイル割当セレクトボックス用のセッションキーを生成する。"""
+
+    digest = hashlib.md5(file_name.encode("utf-8")).hexdigest()
+    return f"sales_wizard_assign_{digest}"
+
+
+def infer_channel_from_name(
+    file_name: str, configs: Sequence[Dict[str, str]]
+) -> Optional[str]:
+    """ファイル名に含まれるキーワードからチャネルを推測する。"""
+
+    if not file_name:
+        return None
+
+    normalized = file_name.lower().replace(" ", "")
+    for config in configs:
+        channel = config.get("channel", "")
+        label = config.get("label", "")
+        candidates = {channel, label}
+        for candidate in list(candidates):
+            if candidate:
+                candidates.add(candidate.replace(" ", ""))
+
+        for candidate in candidates:
+            token = str(candidate).lower()
+            if token and token in normalized:
+                return channel
+
+    return None
+
+
+def format_file_size(num_bytes: Optional[int]) -> str:
+    """ファイルサイズを人が読みやすい形式で返す。"""
+
+    if not num_bytes or num_bytes < 0:
+        return "-"
+
+    units = ["B", "KB", "MB", "GB", "TB"]
+    size = float(num_bytes)
+    for unit in units:
+        if size < 1024.0 or unit == units[-1]:
+            return f"{size:.1f} {unit}"
+        size /= 1024.0
+
+    return f"{num_bytes} B"
+
+
+def render_sales_upload_wizard(
+    configs: Sequence[Dict[str, str]]
+) -> Dict[str, List[Any]]:
+    """売上データ取り込みウィザードを描画し、チャネルごとのファイルを返す。"""
+
+    channel_files: Dict[str, List[Any]] = {config["channel"]: [] for config in configs}
+    assignments: Dict[str, str] = st.session_state.setdefault("sales_wizard_assignments", {})
+    uploaded_files: List[Any] = []
+    preview_rows: List[Dict[str, str]] = []
+    unassigned_count = 0
+
+    with st.sidebar.container():
+        st.markdown("<div class='sidebar-wizard-title'>売上データ取り込みウィザード</div>", unsafe_allow_html=True)
+        st.caption("複数チャネルの売上ファイルをまとめてアップロードし、チャネルへ一括割当できます。")
+
+        st.markdown("**ステップ1. ファイルをまとめてアップロード**")
+        uploaded = st.file_uploader(
+            "売上データファイルを追加",
+            type=["xlsx", "xls", "csv"],
+            accept_multiple_files=True,
+            key="sales_wizard_uploader",
+            help=UPLOAD_HELP_MULTIPLE,
+            label_visibility="collapsed",
+        )
+        if uploaded:
+            uploaded_files = list(uploaded)
+        else:
+            uploaded_files = []
+
+        st.caption(UPLOAD_META_MULTIPLE)
+
+        with st.expander("チャネル別サンプルフォーマットを確認"):
+            for config in configs:
+                channel = config["channel"]
+                try:
+                    sample_df = get_sample_sales_template(channel)
+                except Exception as exc:  # pragma: no cover - サンプル生成失敗時の保護
+                    st.caption(f"{channel}サンプルの生成に失敗しました: {exc}")
+                    continue
+                download_button_from_df(
+                    f"{channel}サンプルCSVをダウンロード",
+                    sample_df,
+                    _build_sample_filename("sales", channel),
+                )
+
+        st.caption("主なチャネルと想定ファイルの例:")
+        for config in configs:
+            st.caption(f"・{config['channel']}: {config['description']}")
+
+        st.markdown("**ステップ2. ファイルごとにチャネルを割当**")
+        options = [CHANNEL_ASSIGNMENT_PLACEHOLDER] + list(channel_files.keys())
+        current_names = {getattr(file, "name", "") for file in uploaded_files}
+
+        for stale in list(assignments.keys()):
+            if stale not in current_names:
+                assignments.pop(stale, None)
+
+        if not uploaded_files:
+            st.caption("ファイルをアップロードするとチャネル割当の設定が表示されます。")
+        else:
+            for uploaded_file in uploaded_files:
+                file_name = getattr(uploaded_file, "name", "")
+                detected = assignments.get(file_name) or infer_channel_from_name(file_name, configs)
+                default_option = detected if detected in channel_files else CHANNEL_ASSIGNMENT_PLACEHOLDER
+                widget_key = _assignment_widget_key(file_name)
+                if widget_key not in st.session_state or st.session_state[widget_key] not in options:
+                    st.session_state[widget_key] = default_option
+
+                st.markdown(
+                    "<div class='wizard-file-item'>"
+                    f"<span class='wizard-file-item__name'>{html.escape(file_name)}</span>"
+                    f"<span class='wizard-file-item__size'>{format_file_size(getattr(uploaded_file, 'size', None))}</span>"
+                    "</div>",
+                    unsafe_allow_html=True,
+                )
+
+                selection = st.selectbox(
+                    f"{file_name}のチャネル",
+                    options=options,
+                    key=widget_key,
+                    label_visibility="collapsed",
+                )
+
+                if selection in channel_files:
+                    channel_files[selection].append(uploaded_file)
+                    assignments[file_name] = selection
+                    assigned_label = selection
+                else:
+                    assignments.pop(file_name, None)
+                    assigned_label = "未割当"
+                    unassigned_count += 1
+
+                preview_rows.append(
+                    {
+                        "ファイル名": file_name,
+                        "割当チャネル": assigned_label,
+                        "サイズ": format_file_size(getattr(uploaded_file, "size", None)),
+                    }
+                )
+
+        st.markdown("**ステップ3. プレビュー & 検証メッセージ**")
+        if preview_rows:
+            preview_df = pd.DataFrame(preview_rows)
+            st.table(preview_df)
+            if unassigned_count:
+                st.warning(f"{unassigned_count}件のファイルが未割当です。チャネルを選択してください。")
+            else:
+                st.success("すべてのファイルにチャネルが割り当てられました。取り込みを実行できます。")
+        else:
+            st.caption("チャネル割当結果のプレビューがここに表示されます。")
+
+    st.session_state["sales_wizard_assignments"] = assignments
+
+    return channel_files
+
+
 def main() -> None:
     init_phase2_session_state()
 
@@ -6488,20 +6679,7 @@ def main() -> None:
         "<div class='sidebar-subheading'>売上データアップロード</div>",
         unsafe_allow_html=True,
     )
-    channel_files: Dict[str, List] = {}
-    for config in SALES_UPLOAD_CONFIGS:
-        channel_files[config["channel"]] = render_sidebar_upload_expander(
-            config["label"],
-            uploader_key=f"sales_{config['channel']}",
-            description=config["description"],
-            multiple=True,
-            meta_text=UPLOAD_META_MULTIPLE,
-            help_text=UPLOAD_HELP_MULTIPLE,
-            sample_label=f"{config['channel']}サンプルCSVをダウンロード",
-            sample_generator=lambda channel=config["channel"]: get_sample_sales_template(channel),
-            sample_filename=_build_sample_filename("sales", config["channel"]),
-            sample_note="フォーマット確認用のサンプルCSVをダウンロードできます。",
-        )
+    channel_files = render_sales_upload_wizard(SALES_UPLOAD_CONFIGS)
 
     st.sidebar.markdown(
         "<div class='sidebar-subheading'>補助データ</div>",
