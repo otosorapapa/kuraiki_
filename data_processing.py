@@ -11,6 +11,11 @@ import numpy as np
 import pandas as pd
 import requests
 
+try:  # Optional dependency for時系列予測
+    from statsmodels.tsa.arima.model import ARIMA  # type: ignore
+except Exception:  # pragma: no cover - statsmodelsが未導入の場合に備える
+    ARIMA = None
+
 # 共通で利用する列名の定義
 NORMALIZED_SALES_COLUMNS = [
     "order_date",
@@ -1156,6 +1161,254 @@ def generate_sample_cost_data() -> pd.DataFrame:
         ("BTA01", "美容酢ドリンク", "美容", 4200, 4200 * 0.62, 0.62),
     ]
     return pd.DataFrame(data, columns=["product_code", "product_name", "category", "price", "cost", "cost_rate"])
+
+
+def _future_period_index(index: pd.Index, periods: int, default_freq: str = "M") -> pd.PeriodIndex:
+    """Generate future period index continuing from the provided index."""
+
+    if isinstance(index, pd.PeriodIndex):
+        freq = index.freq or default_freq
+        start = index.max() + 1
+        return pd.period_range(start=start, periods=periods, freq=freq)
+
+    if isinstance(index, pd.DatetimeIndex):
+        inferred = pd.infer_freq(index)
+        freq = inferred or default_freq
+        last_period = index.max().to_period(freq)
+        start = last_period + 1
+        return pd.period_range(start=start, periods=periods, freq=freq)
+
+    if index.empty:
+        return pd.period_range(
+            start=pd.Period(pd.Timestamp.today(), freq=default_freq),
+            periods=periods,
+            freq=default_freq,
+        )
+
+    try:
+        inferred = pd.infer_freq(pd.to_datetime(index))
+    except Exception:
+        inferred = None
+    freq = inferred or default_freq
+    last_period = pd.to_datetime(index[-1]).to_period(freq)
+    start = last_period + 1
+    return pd.period_range(start=start, periods=periods, freq=freq)
+
+
+def forecast_demand_arima(series: pd.Series, periods: int = 3) -> pd.Series:
+    """ARIMA を利用した需要予測。失敗時は直近値でフォールバックする。"""
+
+    if series is None or series.empty:
+        return pd.Series(dtype=float)
+
+    clean_series = pd.to_numeric(series, errors="coerce").dropna()
+    if clean_series.empty:
+        return pd.Series(dtype=float)
+
+    clean_series = clean_series.sort_index()
+    forecast_index = _future_period_index(clean_series.index, periods)
+
+    if ARIMA is None or len(clean_series) < 3:
+        last_value = float(clean_series.iloc[-1]) if not clean_series.empty else 0.0
+        return pd.Series([last_value] * periods, index=forecast_index)
+
+    try:
+        model = ARIMA(clean_series, order=(1, 1, 1))
+        fitted = model.fit()
+        forecast = fitted.forecast(periods)
+        forecast.index = forecast_index
+        forecast = forecast.clip(lower=0)
+        return forecast
+    except Exception:
+        last_value = float(clean_series.iloc[-1]) if not clean_series.empty else 0.0
+        return pd.Series([last_value] * periods, index=forecast_index)
+
+
+def perform_abc_analysis(
+    df: pd.DataFrame,
+    value_column: str = "sales_amount",
+    quantity_column: str = "quantity",
+) -> pd.DataFrame:
+    """売上・数量ベースのABC分析を行い、重要度クラスを付与する。"""
+
+    empty_columns = [
+        "product_code",
+        "product_name",
+        "total_value",
+        "sales_share",
+        "cumulative_share",
+        "abc_class",
+    ]
+    if df is None or df.empty:
+        return pd.DataFrame(columns=empty_columns)
+
+    working = df.copy()
+    target_column = value_column if value_column in working.columns else quantity_column
+    if target_column not in working.columns:
+        return pd.DataFrame(columns=empty_columns)
+
+    working[target_column] = pd.to_numeric(working[target_column], errors="coerce").fillna(0.0)
+    working = working[working[target_column] > 0]
+    if working.empty:
+        return pd.DataFrame(columns=empty_columns)
+
+    def _pick_name(values: pd.Series) -> str:
+        non_null = values.dropna()
+        if non_null.empty:
+            return "不明商品"
+        return str(non_null.iloc[0])
+
+    aggregated = (
+        working.groupby("product_code")[target_column]
+        .sum()
+        .reset_index(name="total_value")
+    )
+
+    if "product_name" in working.columns:
+        name_map = (
+            working.groupby("product_code")["product_name"].apply(_pick_name).reset_index()
+        )
+        aggregated = aggregated.merge(name_map, on="product_code", how="left")
+    else:
+        aggregated["product_name"] = "不明商品"
+    aggregated = aggregated.sort_values("total_value", ascending=False).reset_index(drop=True)
+
+    total_sum = aggregated["total_value"].sum()
+    if total_sum <= 0:
+        aggregated["sales_share"] = 0.0
+        aggregated["cumulative_share"] = 0.0
+        aggregated["abc_class"] = "C"
+        return aggregated[empty_columns]
+
+    aggregated["sales_share"] = aggregated["total_value"] / total_sum
+    aggregated["cumulative_share"] = aggregated["sales_share"].cumsum()
+
+    def _assign_class(value: float) -> str:
+        if value <= 0.8:
+            return "A"
+        if value <= 0.95:
+            return "B"
+        return "C"
+
+    aggregated["abc_class"] = aggregated["cumulative_share"].apply(_assign_class)
+    return aggregated[empty_columns]
+
+
+def _format_period_label(value: Any) -> str:
+    """Convert period or timestamp into a friendly label."""
+
+    if isinstance(value, pd.Period):
+        try:
+            return value.strftime("%Y-%m")
+        except Exception:
+            return str(value)
+    if isinstance(value, pd.Timestamp):
+        return value.strftime("%Y-%m")
+    if value is None:
+        return "-"
+    return str(value)
+
+
+def generate_inventory_campaign_recommendations(
+    df: pd.DataFrame,
+    forecast_periods: int = 3,
+    safety_factor: float = 0.2,
+) -> pd.DataFrame:
+    """入力データから仕入量とキャンペーン時期のレコメンドを算出する。"""
+
+    required_columns = {"order_date", "product_code", "quantity"}
+    empty_columns = [
+        "product_code",
+        "product_name",
+        "abc_class",
+        "next_period",
+        "projected_demand",
+        "recommended_reorder_qty",
+        "campaign_period",
+        "notes",
+    ]
+
+    if df is None or df.empty or not required_columns.issubset(df.columns):
+        return pd.DataFrame(columns=empty_columns)
+
+    working = df.copy()
+    working["order_date"] = pd.to_datetime(working["order_date"], errors="coerce")
+    working = working.dropna(subset=["order_date"])
+    if working.empty:
+        return pd.DataFrame(columns=empty_columns)
+
+    working["quantity"] = pd.to_numeric(working["quantity"], errors="coerce").fillna(0.0)
+    if "sales_amount" in working.columns:
+        working["sales_amount"] = pd.to_numeric(working["sales_amount"], errors="coerce").fillna(0.0)
+
+    if "product_name" not in working.columns:
+        working["product_name"] = "不明商品"
+    else:
+        working.loc[working["product_name"].isna(), "product_name"] = "不明商品"
+
+    working["order_month"] = working["order_date"].dt.to_period("M")
+    monthly = (
+        working.groupby(["product_code", "product_name", "order_month"])["quantity"]
+        .sum()
+        .reset_index()
+    )
+
+    if monthly.empty:
+        return pd.DataFrame(columns=empty_columns)
+
+    abc_df = perform_abc_analysis(working)
+    records: List[Dict[str, Any]] = []
+
+    for product_code, product_df in monthly.groupby("product_code"):
+        series = product_df.set_index("order_month")["quantity"].sort_index()
+        if series.empty:
+            continue
+
+        forecast = forecast_demand_arima(series, periods=forecast_periods)
+        if forecast.empty:
+            continue
+
+        next_period = forecast.index[0]
+        projected = max(float(forecast.iloc[0]), 0.0)
+        recent_avg = float(series.tail(min(3, len(series))).mean()) if len(series) else 0.0
+        buffer_qty = projected * safety_factor + recent_avg * safety_factor
+        recommended_qty = max(projected + buffer_qty, 0.0)
+
+        campaign_period = forecast.idxmin()
+        product_name = product_df["product_name"].dropna().astype(str)
+        product_name_value = product_name.iloc[0] if not product_name.empty else "不明商品"
+
+        records.append(
+            {
+                "product_code": product_code,
+                "product_name": product_name_value,
+                "next_period": _format_period_label(next_period),
+                "projected_demand": projected,
+                "recommended_reorder_qty": math.ceil(recommended_qty),
+                "campaign_period": _format_period_label(campaign_period),
+                "notes": "ARIMA予測/直近平均ベース",
+            }
+        )
+
+    if not records:
+        return pd.DataFrame(columns=empty_columns)
+
+    result_df = pd.DataFrame(records)
+    if not abc_df.empty:
+        result_df = result_df.merge(
+            abc_df[["product_code", "abc_class", "sales_share", "cumulative_share"]],
+            on="product_code",
+            how="left",
+        )
+    else:
+        result_df["abc_class"] = "C"
+
+    result_df = result_df.sort_values(
+        by=["abc_class", "projected_demand"],
+        ascending=[True, False],
+    ).reset_index(drop=True)
+
+    return result_df[empty_columns]
 
 
 def generate_sample_subscription_data() -> pd.DataFrame:
