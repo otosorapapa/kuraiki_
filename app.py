@@ -7,12 +7,15 @@ import hashlib
 import importlib
 import io
 import logging
+import tempfile
+import zipfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
+from pathlib import Path
 import calendar
 from datetime import date, datetime, timedelta
 import traceback
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, TypeVar, Union
+from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple, TypeVar, Union
 from urllib.parse import parse_qsl
 
 import numpy as np
@@ -294,9 +297,9 @@ EXPENSE_IMPORT_CANDIDATES: Dict[str, List[str]] = {
 }
 
 
-UPLOAD_META_MULTIPLE = "対応形式: CSV, Excel（最大10MB・複数ファイル対応）"
+UPLOAD_META_MULTIPLE = "対応形式: CSV, Excel, ZIP（単体最大10MB／展開後合計はおよそ50MBまでを推奨）"
 UPLOAD_META_SINGLE = "対応形式: CSV, Excel（最大10MB・1ファイル）"
-UPLOAD_HELP_MULTIPLE = "CSVまたはExcelファイルをドラッグ＆ドロップで追加できます。複数ファイルをまとめてアップロードできます。"
+UPLOAD_HELP_MULTIPLE = "CSV・Excelファイル、もしくはそれらをまとめたZIPをドラッグ＆ドロップで追加できます。破損ファイルは自動でスキップし、結果は下部に表示されます。"
 UPLOAD_HELP_SINGLE = "CSVまたはExcelファイルをドラッグ＆ドロップでアップロードしてください。1ファイルのみアップロードできます。"
 
 SALES_UPLOAD_CONFIGS: List[Dict[str, str]] = [
@@ -321,6 +324,13 @@ SALES_UPLOAD_CONFIGS: List[Dict[str, str]] = [
         "description": "ストアクリエイターProから出力した受注データを取り込みます。",
     },
 ]
+
+CHANNEL_CONTENT_HINTS: Dict[str, Iterable[str]] = {
+    "自社サイト": {"自社", "ec", "shop", "d2c"},
+    "楽天市場": {"rakuten", "楽天", "rms"},
+    "Amazon": {"amazon", "seller", "fba"},
+    "Yahoo!ショッピング": {"yahoo", "ヤフー", "paypay"},
+}
 
 CHANNEL_ASSIGNMENT_PLACEHOLDER = "チャネルを選択"
 
@@ -6894,6 +6904,196 @@ def format_file_size(num_bytes: Optional[int]) -> str:
     return f"{num_bytes} B"
 
 
+class BufferedUploadedFile(io.BytesIO):
+    """In-memory uploaded file that mimics Streamlit's UploadedFile API."""
+
+    def __init__(self, data: bytes, *, name: str, mime_type: Optional[str] = None, origin: Optional[str] = None):
+        super().__init__(data)
+        self.name = name
+        self.size = len(data)
+        if mime_type:
+            self.type = mime_type
+        self.origin = origin
+
+
+def _normalize_token(value: str) -> str:
+    """Normalize strings for fuzzy comparison."""
+
+    return str(value).strip().lower().replace(" ", "")
+
+
+def _channel_tokens(config: Dict[str, str]) -> Iterable[str]:
+    """Collect candidate tokens for a channel configuration."""
+
+    tokens = set()
+    for key in ("channel", "label"):
+        candidate = config.get(key)
+        if candidate:
+            tokens.add(_normalize_token(candidate))
+    channel = config.get("channel")
+    if channel and channel in CHANNEL_CONTENT_HINTS:
+        for hint in CHANNEL_CONTENT_HINTS[channel]:
+            tokens.add(_normalize_token(hint))
+    return tokens
+
+
+def _buffer_uploaded_file(uploaded_file: Any, *, display_name: Optional[str] = None, origin: Optional[str] = None) -> BufferedUploadedFile:
+    """Create a BufferedUploadedFile from various uploaded file objects."""
+
+    if uploaded_file is None:
+        raise ValueError("uploaded_file must not be None")
+
+    if hasattr(uploaded_file, "getvalue"):
+        data = uploaded_file.getvalue()
+    else:
+        data = uploaded_file.read()  # type: ignore[assignment]
+    if data is None:
+        data = b""
+    name = display_name or getattr(uploaded_file, "name", "uploaded.dat")
+    mime_type = getattr(uploaded_file, "type", None)
+    buffered = BufferedUploadedFile(data, name=name, mime_type=mime_type, origin=origin)
+    try:
+        uploaded_file.seek(0)
+    except Exception:  # pragma: no cover - Streamlit's UploadedFile may not support seek
+        pass
+    return buffered
+
+
+def _extract_zip_members(zip_file: BufferedUploadedFile) -> Tuple[List[BufferedUploadedFile], List[str], List[str], List[str]]:
+    """Extract CSV/XLSX members from a ZIP archive into memory."""
+
+    extracted: List[BufferedUploadedFile] = []
+    info_messages: List[str] = []
+    warning_messages: List[str] = []
+    error_messages: List[str] = []
+    archive_name = getattr(zip_file, "name", "ZIPファイル")
+
+    try:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir) / "uploaded.zip"
+            tmp_path.write_bytes(zip_file.getvalue())
+            with zipfile.ZipFile(tmp_path) as archive:
+                unsupported_members: List[str] = []
+                for member in archive.infolist():
+                    if member.is_dir():
+                        continue
+                    member_path = Path(member.filename)
+                    member_suffix = member_path.suffix.lower()
+                    if member_suffix not in {".csv", ".xlsx", ".xls"}:
+                        unsupported_members.append(member_path.name or member.filename)
+                        continue
+                    try:
+                        data = archive.read(member)
+                    except Exception as exc:  # pragma: no cover - unexpected read failure
+                        error_messages.append(
+                            f"{archive_name} 内の {member.filename} の展開に失敗しました: {exc}"
+                        )
+                        continue
+                    safe_member_name = member_path.name or member.filename
+                    display_name = f"{archive_name}▶{safe_member_name}"
+                    mime_type = "application/vnd.ms-excel" if member_suffix == ".xls" else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" if member_suffix == ".xlsx" else "text/csv"
+                    extracted.append(
+                        BufferedUploadedFile(
+                            data,
+                            name=display_name,
+                            mime_type=mime_type,
+                            origin=archive_name,
+                        )
+                    )
+                if unsupported_members:
+                    preview = ", ".join(unsupported_members[:3])
+                    if len(unsupported_members) > 3:
+                        preview += f" 他{len(unsupported_members) - 3}件"
+                    warning_messages.append(
+                        f"{archive_name} 内の一部ファイル（{preview}）は未対応の形式のためスキップしました。"
+                    )
+    except zipfile.BadZipFile as exc:
+        error_messages.append(f"{archive_name} をZIPとして解凍できませんでした: {exc}")
+        return [], [], warning_messages, error_messages
+
+    if extracted:
+        info_messages.append(f"{archive_name} を展開し、{len(extracted)}件のCSV/XLSXを読み込みました。")
+    else:
+        warning_messages.append(f"{archive_name} 内に対応するCSV/XLSXファイルが見つかりませんでした。")
+
+    return extracted, info_messages, warning_messages, error_messages
+
+
+def _peek_tabular_content(uploaded_file: Any, *, max_rows: int = 5) -> pd.DataFrame:
+    """Read a lightweight preview of the uploaded file to inspect headers."""
+
+    if uploaded_file is None:
+        return pd.DataFrame()
+
+    readers: List[Callable[[], pd.DataFrame]] = []
+    name = getattr(uploaded_file, "name", "").lower()
+    if name.endswith((".xlsx", ".xls")):
+        readers.append(lambda: pd.read_excel(uploaded_file, nrows=max_rows))
+    if name.endswith(".csv"):
+        readers.append(lambda: pd.read_csv(uploaded_file, nrows=max_rows))
+    if not readers:
+        readers = [
+            lambda: pd.read_excel(uploaded_file, nrows=max_rows),
+            lambda: pd.read_csv(uploaded_file, nrows=max_rows),
+        ]
+
+    for reader in readers:
+        try:
+            uploaded_file.seek(0)
+        except Exception:  # pragma: no cover - UploadedFile may not support seek
+            pass
+        try:
+            df = reader()
+        except Exception:
+            continue
+        finally:
+            try:
+                uploaded_file.seek(0)
+            except Exception:
+                pass
+        if df is not None and (not df.empty or list(df.columns)):
+            return df
+
+    return pd.DataFrame()
+
+
+def infer_channel_from_file(uploaded_file: Any, configs: Sequence[Dict[str, str]]) -> Optional[str]:
+    """ファイル名と内容からチャネルを推測する。"""
+
+    file_name = getattr(uploaded_file, "name", "")
+    detected = infer_channel_from_name(file_name, configs)
+    if detected:
+        return detected
+
+    preview_df = _peek_tabular_content(uploaded_file)
+    if preview_df.empty and not list(preview_df.columns):
+        return None
+
+    normalized_columns = {_normalize_token(col) for col in preview_df.columns if isinstance(col, str)}
+    sample_values = set()
+    for column in preview_df.columns:
+        series = preview_df[column]
+        if not isinstance(series, pd.Series):
+            continue
+        for value in series.head(5):
+            if value is None:
+                continue
+            token = _normalize_token(value)
+            if token and token != "nan":
+                sample_values.add(token)
+
+    for config in configs:
+        for token in _channel_tokens(config):
+            if not token:
+                continue
+            if any(token in col for col in normalized_columns) or any(
+                token in sample for sample in sample_values
+            ):
+                return config.get("channel")
+
+    return None
+
+
 def render_sales_upload_wizard(
     configs: Sequence[Dict[str, str]]
 ) -> Dict[str, List[Any]]:
@@ -6912,18 +7112,39 @@ def render_sales_upload_wizard(
         st.markdown("**ステップ1. ファイルをまとめてアップロード**")
         uploaded = st.file_uploader(
             "売上データファイルを追加",
-            type=["xlsx", "xls", "csv"],
+            type=["xlsx", "xls", "csv", "zip"],
             accept_multiple_files=True,
             key="sales_wizard_uploader",
             help=UPLOAD_HELP_MULTIPLE,
             label_visibility="collapsed",
         )
+        zip_info_messages: List[str] = []
+        zip_warning_messages: List[str] = []
+        zip_error_messages: List[str] = []
+
+        uploaded_files = []
         if uploaded:
-            uploaded_files = list(uploaded)
-        else:
-            uploaded_files = []
+            for raw_file in uploaded:
+                file_name = getattr(raw_file, "name", "")
+                if file_name.lower().endswith(".zip"):
+                    buffered_zip = _buffer_uploaded_file(raw_file)
+                    extracted, info_msgs, warnings, errors = _extract_zip_members(buffered_zip)
+                    uploaded_files.extend(extracted)
+                    zip_info_messages.extend(info_msgs)
+                    zip_warning_messages.extend(warnings)
+                    zip_error_messages.extend(errors)
+                else:
+                    uploaded_files.append(raw_file)
+
+        for message in zip_info_messages:
+            st.caption(f"📁 {message}")
+        for message in zip_warning_messages:
+            st.warning(message)
+        for message in zip_error_messages:
+            st.error(message)
 
         st.caption(UPLOAD_META_MULTIPLE)
+        st.caption("ZIP内のCSV/XLSXはサーバー側で自動展開され、破損しているファイルはスキップします。")
 
         with st.expander("チャネル別サンプルフォーマットを確認"):
             for config in configs:
@@ -6956,7 +7177,7 @@ def render_sales_upload_wizard(
         else:
             for uploaded_file in uploaded_files:
                 file_name = getattr(uploaded_file, "name", "")
-                detected = assignments.get(file_name) or infer_channel_from_name(file_name, configs)
+                detected = assignments.get(file_name) or infer_channel_from_file(uploaded_file, configs)
                 default_option = detected if detected in channel_files else CHANNEL_ASSIGNMENT_PLACEHOLDER
                 widget_key = _assignment_widget_key(file_name)
                 if widget_key not in st.session_state or st.session_state[widget_key] not in options:
