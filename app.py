@@ -23,6 +23,8 @@ import plotly.graph_objects as go
 import streamlit as st
 from streamlit_plotly_events import plotly_events
 
+from notification_service import NotificationService
+
 from data_processing import (
     DEFAULT_FIXED_COST,
     annotate_customer_segments,
@@ -53,8 +55,238 @@ st.set_page_config(
     page_title="経営ダッシュボード",
     page_icon=":bar_chart:",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="auto",
 )
+
+
+def inject_responsive_layout() -> None:
+    """モバイルに最適化したレスポンシブCSSとデザイントークンを適用する。"""
+
+    st.markdown(
+        """
+        <style>
+        :root {
+            --color-background: #f4f6fb;
+            --surface-card: #ffffff;
+            --surface-muted: #f8fafc;
+            --border-muted: rgba(15, 23, 42, 0.08);
+            --shadow-soft: 0 12px 32px rgba(15, 23, 42, 0.08);
+            --card-radius: 18px;
+            --grid-gap: clamp(16px, 4vw, 28px);
+            --page-padding: clamp(16px, 5vw, 56px);
+            --page-max-width: min(1180px, 96vw);
+            --tap-target-size: 56px;
+        }
+
+        body {
+            background: var(--color-background);
+        }
+
+        .main .block-container {
+            padding-left: var(--page-padding);
+            padding-right: var(--page-padding);
+            max-width: var(--page-max-width);
+        }
+
+        section[data-testid="stSidebar"] > div {
+            padding-top: 1.5rem;
+        }
+
+        .metric-card {
+            background: var(--surface-card);
+            border-radius: var(--card-radius);
+            border: 1px solid var(--border-muted);
+            padding: 1.1rem 1.25rem;
+            box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
+            display: flex;
+            flex-direction: column;
+            gap: 0.65rem;
+        }
+
+        .metric-card.tap-target {
+            min-height: var(--tap-target-size);
+        }
+
+        .metric-card [data-testid="stMetricValue"] {
+            font-size: clamp(1.4rem, 4vw, 2.1rem);
+            font-weight: 600;
+        }
+
+        .metric-card [data-testid="stMetricDelta"] {
+            font-size: clamp(0.85rem, 2.6vw, 1rem);
+        }
+
+        .metric-card .metric-caption {
+            font-size: 0.85rem;
+            color: #4b5563;
+        }
+
+        .chart-section {
+            background: var(--surface-card);
+            border-radius: var(--card-radius);
+            padding: 1.4rem clamp(1.1rem, 4vw, 1.9rem);
+            margin-bottom: var(--grid-gap);
+            box-shadow: var(--shadow-soft);
+        }
+
+        .chart-section__header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+            margin-bottom: 1.1rem;
+        }
+
+        .chart-section__title {
+            font-size: clamp(1.05rem, 2.8vw, 1.3rem);
+            font-weight: 600;
+        }
+
+        .chart-card {
+            background: var(--surface-muted);
+            border-radius: calc(var(--card-radius) - 6px);
+            padding: 0.75rem;
+        }
+
+        .stTabs [data-baseweb="tab-list"] {
+            gap: 0.35rem;
+        }
+
+        .stTabs [data-baseweb="tab"] {
+            border-radius: 999px;
+            padding: 0.55rem 1rem;
+        }
+
+        .stButton button, .stDownloadButton button, .stFormSubmitButton button {
+            min-height: var(--tap-target-size);
+            border-radius: 999px;
+            padding: 0.65rem 1.4rem;
+            font-weight: 600;
+        }
+
+        .stSegmentedControl {
+            width: 100%;
+        }
+
+        .stSegmentedControl > div {
+            gap: 0.4rem;
+            flex-wrap: wrap;
+        }
+
+        .stSegmentedControl label {
+            border-radius: 999px !important;
+            padding: 0.55rem 1.1rem !important;
+            font-size: 0.95rem;
+        }
+
+        [data-testid="stHorizontalBlock"] {
+            gap: var(--grid-gap) !important;
+        }
+
+        @media (max-width: 960px) {
+            .main .block-container {
+                padding-left: clamp(14px, 6vw, 20px);
+                padding-right: clamp(14px, 6vw, 20px);
+            }
+
+            [data-testid="column"] {
+                flex: 1 1 100% !important;
+                width: 100% !important;
+                min-width: 100% !important;
+            }
+
+            .chart-section {
+                padding: 1.2rem;
+            }
+
+            .chart-card {
+                padding: 0.85rem;
+            }
+
+            .stMetric [data-testid="stMetricLabel"] {
+                font-size: 0.95rem;
+            }
+
+            .stTabs [data-baseweb="tab"] {
+                flex: 1 1 calc(50% - 0.4rem);
+                justify-content: center;
+            }
+
+            .stButton button, .stDownloadButton button, .stFormSubmitButton button {
+                width: 100%;
+            }
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+inject_responsive_layout()
+
+
+def load_notification_client() -> NotificationService:
+    """Streamlitのシークレットや環境変数から通知クライアントを初期化する。"""
+
+    secrets_payload: Dict[str, Any] = {}
+    try:
+        secrets_section = st.secrets.get("notifications", {})  # type: ignore[attr-defined]
+        if isinstance(secrets_section, dict):
+            secrets_payload = dict(secrets_section)
+        else:
+            secrets_payload = dict(secrets_section)  # type: ignore[arg-type]
+    except Exception:
+        secrets_payload = {}
+    return NotificationService.from_settings(secrets_payload)
+
+
+notification_client = load_notification_client()
+
+ALERT_NOTIFICATION_STATE_KEY = "last_notification_digest"
+
+
+def dispatch_alert_notifications(
+    alerts: Sequence[str],
+    *,
+    period_label: str,
+    range_label: str,
+    store_label: str,
+) -> None:
+    """閾値超過アラートをFirebase Cloud Messagingなどのモバイル通知へ送信する。"""
+
+    if not alerts:
+        return
+
+    if not notification_client.is_configured:
+        logger.debug("Notification client is not fully configured. Skipping push notification.")
+        return
+
+    payload = {
+        "alerts": sorted(alerts),
+        "period_label": period_label,
+        "range_label": range_label,
+        "store_label": store_label,
+    }
+
+    digest = notification_client.compute_digest(payload)
+    if st.session_state.get(ALERT_NOTIFICATION_STATE_KEY) == digest:
+        return
+
+    metadata = {
+        "period_label": period_label,
+        "range_label": range_label,
+        "store": store_label,
+        "alert_count": len(alerts),
+    }
+
+    sent = notification_client.send_alerts(
+        alerts,
+        title="重要指標の変動を検知しました",
+        data=metadata,
+    )
+    if sent:
+        st.session_state[ALERT_NOTIFICATION_STATE_KEY] = digest
 
 
 logger = logging.getLogger(__name__)
@@ -3412,16 +3644,21 @@ def render_navigation() -> Tuple[str, str]:
     current_label = NAV_OPTION_LOOKUP[current_key]
     current_index = label_options.index(current_label) if current_label in label_options else 0
 
-    selected_label = st.radio(
+    widget_value = st.segmented_control(
         "主要メニュー",
         options=label_options,
-        horizontal=True,
-        index=current_index,
+        selection_mode="single",
+        default=label_options[current_index],
         key="main_nav_display",
         label_visibility="collapsed",
     )
 
-    selected_key = label_to_key[selected_label]
+    if isinstance(widget_value, list):
+        selected_label = widget_value[0] if widget_value else label_options[current_index]
+    else:
+        selected_label = widget_value
+
+    selected_key = label_to_key.get(selected_label, PRIMARY_NAV_ITEMS[0]["key"])
     st.session_state["main_nav"] = selected_key
     return selected_key, NAV_LABEL_LOOKUP[selected_key]
 
@@ -3717,6 +3954,31 @@ def show_kpi_card(
     )
 
 
+def render_metric_cards(metrics: Sequence[Dict[str, Any]]) -> None:
+    """共通スタイルのメトリックカードをレスポンシブに描画する。"""
+
+    if not metrics:
+        return
+
+    columns = st.columns(len(metrics))
+    for column, config in zip(columns, metrics):
+        with column:
+            st.markdown("<div class='metric-card tap-target'>", unsafe_allow_html=True)
+            st.metric(
+                label=config.get("label", "-"),
+                value=config.get("value", "-"),
+                delta=config.get("delta"),
+                delta_color=config.get("delta_color", "normal"),
+            )
+            caption = config.get("caption")
+            if caption:
+                st.markdown(
+                    f"<div class='metric-caption'>{html.escape(str(caption))}</div>",
+                    unsafe_allow_html=True,
+                )
+            st.markdown("</div>", unsafe_allow_html=True)
+
+
 def render_kgi_cards(
     selected_kpi_row: pd.Series,
     period_row: Optional[pd.DataFrame],
@@ -3807,6 +4069,7 @@ def render_kgi_cards(
     columns = st.columns(len(cards_info))
     for column, info in zip(columns, cards_info):
         with column:
+            st.markdown("<div class='metric-card tap-target'>", unsafe_allow_html=True)
             show_kpi_card(
                 info["label"],
                 info.get("current"),
@@ -3820,9 +4083,16 @@ def render_kgi_cards(
             gap_value = info.get("gap_value")
             if target_text and target_text != "-":
                 prefix = "⚠️" if gap_value is not None and gap_value < 0 else "🎯"
-                st.caption(f"{prefix} 目標差 {target_text}")
+                st.markdown(
+                    f"<div class='metric-caption'>{prefix} 目標差 {html.escape(str(target_text))}</div>",
+                    unsafe_allow_html=True,
+                )
             else:
-                st.caption("目標差 -")
+                st.markdown(
+                    "<div class='metric-caption'>目標差 -</div>",
+                    unsafe_allow_html=True,
+                )
+            st.markdown("</div>", unsafe_allow_html=True)
 
 
 def clear_filter_selection(filter_name: str) -> None:
@@ -4274,34 +4544,36 @@ def render_sales_tab(
     if period_summary is not None and not period_summary.empty:
         latest_row = period_summary.iloc[-1]
         prev_row = period_summary.iloc[-2] if len(period_summary) > 1 else None
-        card_cols = st.columns(3)
 
         latest_sales = float(latest_row.get("sales_amount", 0.0))
         sales_delta = latest_row.get("sales_mom")
-        card_cols[0].metric(
-            "当期売上高",
-            f"{latest_sales:,.0f} 円",
-            delta=f"{sales_delta * 100:+.1f}%" if pd.notna(sales_delta) else "-",
-        )
-
         latest_gross = float(latest_row.get("net_gross_profit", 0.0))
         gross_delta = latest_row.get("gross_mom")
-        card_cols[1].metric(
-            "当期粗利",
-            f"{latest_gross:,.0f} 円",
-            delta=f"{gross_delta * 100:+.1f}%" if pd.notna(gross_delta) else "-",
-        )
-
         latest_margin = latest_row.get("gross_margin_rate")
         prev_margin = prev_row.get("gross_margin_rate") if prev_row is not None else np.nan
         margin_delta = (
             (latest_margin - prev_margin) if pd.notna(latest_margin) and pd.notna(prev_margin) else np.nan
         )
-        card_cols[2].metric(
-            "粗利率",
-            f"{latest_margin:.1%}" if pd.notna(latest_margin) else "-",
-            delta=f"{margin_delta * 100:+.1f}pt" if pd.notna(margin_delta) else "-",
-        )
+
+        metric_cards = [
+            {
+                "label": "当期売上高",
+                "value": f"{latest_sales:,.0f} 円",
+                "delta": f"{sales_delta * 100:+.1f}%" if pd.notna(sales_delta) else None,
+            },
+            {
+                "label": "当期粗利",
+                "value": f"{latest_gross:,.0f} 円",
+                "delta": f"{gross_delta * 100:+.1f}%" if pd.notna(gross_delta) else None,
+            },
+            {
+                "label": "粗利率",
+                "value": f"{latest_margin:.1%}" if pd.notna(latest_margin) else "-",
+                "delta": f"{margin_delta * 100:+.1f}pt" if pd.notna(margin_delta) else None,
+            },
+        ]
+
+        render_metric_cards(metric_cards)
 
         st.markdown("<div class='chart-section'>", unsafe_allow_html=True)
         st.markdown(
@@ -4387,7 +4659,9 @@ def render_sales_tab(
                 height=320,
             )
             sales_chart = apply_altair_theme(sales_chart)
+            st.markdown("<div class='chart-card'>", unsafe_allow_html=True)
             st.altair_chart(sales_chart, use_container_width=True)
+            st.markdown("</div>", unsafe_allow_html=True)
         else:
             st.caption("売上推移を表示するための指標が不足しています。")
 
@@ -4450,7 +4724,10 @@ def render_sales_tab(
                 text=alt.Text("構成比:Q", format=".1%"),
             )
             channel_chart = apply_altair_theme((bar + labels).properties(height=260))
-            chart_cols[0].altair_chart(channel_chart, use_container_width=True)
+            with chart_cols[0]:
+                st.markdown("<div class='chart-card'>", unsafe_allow_html=True)
+                st.altair_chart(channel_chart, use_container_width=True)
+                st.markdown("</div>", unsafe_allow_html=True)
 
             top_channel = channel_rank.iloc[0]
             if len(channel_rank) >= 5:
@@ -4499,7 +4776,10 @@ def render_sales_tab(
                 text=alt.Text("構成比:Q", format=".1%"),
             )
             category_chart = apply_altair_theme((bar + labels).properties(height=260))
-            chart_cols[1].altair_chart(category_chart, use_container_width=True)
+            with chart_cols[1]:
+                st.markdown("<div class='chart-card'>", unsafe_allow_html=True)
+                st.altair_chart(category_chart, use_container_width=True)
+                st.markdown("</div>", unsafe_allow_html=True)
 
             top_category = category_rank.iloc[0]
             chart_cols[1].caption(
@@ -7274,6 +7554,12 @@ def main() -> None:
                 category_selection=selected_categories,
             )
             render_status_banner(alerts)
+            dispatch_alert_notifications(
+                alerts,
+                period_label=selected_dashboard_period,
+                range_label=range_label,
+                store_label=selected_store or "全社",
+            )
             st.caption(f"対象期間: {period_start} 〜 {period_end}")
 
             kpi_metrics = render_first_level_kpi_strip(kpi_period_summary, selected_kpi_row)
