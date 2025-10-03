@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 180" role="img" aria-labelledby="title desc">
+  <title id="title">Scenario planning preview</title>
+  <desc id="desc">Comparison chart for multiple scenarios</desc>
+  <rect width="320" height="180" rx="16" fill="#2563EB" opacity="0.07"/>
+  <polyline points="40,120 80,90 120,110 160,80 200,96 240,70" fill="none" stroke="#2563EB" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" opacity="0.55"/>
+  <polyline points="40,130 80,118 120,124 160,102 200,108 240,98" fill="none" stroke="#C2410C" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" opacity="0.6"/>
+  <polyline points="40,110 80,82 120,86 160,60 200,76 240,64" fill="none" stroke="#15803D" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" opacity="0.6"/>
+</svg>

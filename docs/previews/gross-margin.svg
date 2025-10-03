@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 180" role="img" aria-labelledby="title desc">
+  <title id="title">Gross margin preview</title>
+  <desc id="desc">Line chart and margin badge illustration</desc>
+  <rect width="320" height="180" rx="16" fill="#15803D" opacity="0.07"/>
+  <polyline points="20,120 70,80 120,95 170,60 220,78 270,44" fill="none" stroke="#15803D" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" opacity="0.6"/>
+  <circle cx="236" cy="76" r="34" fill="#2563EB" opacity="0.12"/>
+  <text x="236" y="82" text-anchor="middle" font-family="'Inter', sans-serif" font-size="24" fill="#0F172A" opacity="0.7">42%</text>
+</svg>

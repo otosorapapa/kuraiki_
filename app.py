@@ -557,14 +557,62 @@ STATUS_PILL_DETAILS: Dict[str, Tuple[str, str]] = {
 
 
 PRIMARY_NAV_ITEMS: List[Dict[str, str]] = [
-    {"key": "dashboard", "label": "Dashboard", "icon": "📊"},
-    {"key": "sales", "label": "売上", "icon": "🛒"},
-    {"key": "gross", "label": "粗利", "icon": "💹"},
-    {"key": "inventory", "label": "在庫", "icon": "📦"},
-    {"key": "cash", "label": "資金", "icon": "💰"},
-    {"key": "kpi", "label": "KPI", "icon": "📈"},
-    {"key": "scenario", "label": "シナリオ分析", "icon": "🧮"},
-    {"key": "data", "label": "データ管理", "icon": "🗂"},
+    {
+        "key": "dashboard",
+        "label": "Dashboard",
+        "icon": "📊",
+        "description": "主要KPIとトレンドを俯瞰できる経営ダッシュボードを表示します。",
+        "preview": "docs/previews/dashboard-overview.svg",
+    },
+    {
+        "key": "sales",
+        "label": "売上",
+        "icon": "🛒",
+        "description": "チャネル別・期間別の売上推移を可視化し、成長ポイントを把握します。",
+        "preview": "docs/previews/sales-performance.svg",
+    },
+    {
+        "key": "gross",
+        "label": "粗利",
+        "icon": "💹",
+        "description": "商品別・チャネル別の粗利率を分析し、収益性を評価します。",
+        "preview": "docs/previews/gross-margin.svg",
+    },
+    {
+        "key": "inventory",
+        "label": "在庫",
+        "icon": "📦",
+        "description": "在庫回転日数や滞留リスクを確認し、適正在庫を維持します。",
+        "preview": "docs/previews/inventory-health.svg",
+    },
+    {
+        "key": "cash",
+        "label": "資金",
+        "icon": "💰",
+        "description": "資金繰りやキャッシュフロー見通しをチェックし、資金計画を支援します。",
+        "preview": "docs/previews/cash-flow.svg",
+    },
+    {
+        "key": "kpi",
+        "label": "KPI",
+        "icon": "📈",
+        "description": "コンバージョン率やLTVなど主要KPIの変化を詳細に追跡します。",
+        "preview": "docs/previews/kpi-scorecard.svg",
+    },
+    {
+        "key": "scenario",
+        "label": "シナリオ分析",
+        "icon": "🧮",
+        "description": "複数のシナリオを比較し、感度分析や計画検証を行います。",
+        "preview": "docs/previews/scenario-planning.svg",
+    },
+    {
+        "key": "data",
+        "label": "データ管理",
+        "icon": "🗂",
+        "description": "データのインポートやクリーニング状況を管理します。",
+        "preview": "docs/previews/data-workbench.svg",
+    },
 ]
 
 NAV_LABEL_LOOKUP: Dict[str, str] = {item["key"]: item["label"] for item in PRIMARY_NAV_ITEMS}
@@ -1257,12 +1305,19 @@ def inject_mckinsey_style(*, dark_mode: bool = False, font_scale: float = 1.0) -
         .main-nav-item-wrapper {{
             position: relative;
             margin-bottom: 0;
+            outline: none;
+        }}
+        .main-nav-item-wrapper:focus-visible .main-nav-item,
+        .main-nav-item-wrapper:focus-within .main-nav-item {{
+            box-shadow: 0 0 0 3px rgba(37,99,235,0.35);
         }}
         .main-nav-item-wrapper > div[data-testid="stButton"] {{
             position: absolute;
             inset: 0;
             opacity: 0;
             z-index: 2;
+            width: 100%;
+            height: 100%;
         }}
         .main-nav-item-wrapper > div[data-testid="stButton"] button {{
             height: 100%;
@@ -1270,6 +1325,10 @@ def inject_mckinsey_style(*, dark_mode: bool = False, font_scale: float = 1.0) -
             padding: 0;
             border: none;
             background: transparent;
+            color: transparent;
+        }}
+        .main-nav-item-wrapper > div[data-testid="stButton"] button:focus-visible {{
+            outline: none;
         }}
         .main-nav-item {{
             display: flex;
@@ -1295,6 +1354,11 @@ def inject_mckinsey_style(*, dark_mode: bool = False, font_scale: float = 1.0) -
             color: var(--text-color);
             letter-spacing: 0.01em;
         }}
+        .main-nav-item-wrapper:focus-within .main-nav-item,
+        .main-nav-item-wrapper:hover .main-nav-item {{
+            transform: translateY(-2px);
+            box-shadow: 0 12px 24px rgba(15,23,42,0.14);
+        }}
         .main-nav-item:hover {{
             transform: translateY(-2px);
             box-shadow: 0 12px 24px rgba(15,23,42,0.14);
@@ -1313,6 +1377,60 @@ def inject_mckinsey_style(*, dark_mode: bool = False, font_scale: float = 1.0) -
             font-size: 1.08rem;
             font-weight: 700;
             letter-spacing: 0.03em;
+        }}
+        .nav-preview-popover {{
+            position: absolute;
+            left: 50%;
+            bottom: calc(100% + 0.75rem);
+            transform: translateX(-50%) translateY(0.5rem);
+            opacity: 0;
+            visibility: hidden;
+            pointer-events: none;
+            transition: opacity 0.2s ease, transform 0.2s ease;
+            z-index: 5;
+            width: min(220px, 80vw);
+            border-radius: var(--radius-card);
+            background: #ffffff;
+            box-shadow: 0 18px 38px rgba(15,23,42,0.22);
+            border: 1px solid rgba(148,163,184,0.35);
+            padding: 0.9rem 1rem;
+        }}
+        .main-nav-item-wrapper:focus-within .nav-preview-popover,
+        .main-nav-item-wrapper:hover .nav-preview-popover {{
+            opacity: 1;
+            visibility: visible;
+            transform: translateX(-50%) translateY(0);
+        }}
+        .nav-preview-popover__preview {{
+            margin: 0 0 0.65rem;
+            border-radius: var(--radius-card);
+            overflow: hidden;
+            background: rgba(148,163,184,0.15);
+        }}
+        .nav-preview-popover__preview img {{
+            display: block;
+            width: 100%;
+            height: auto;
+        }}
+        .main-nav-item-wrapper[data-has-preview="false"] .nav-preview-popover__preview {{
+            display: none;
+        }}
+        .nav-preview-popover__description {{
+            font-size: 0.85rem;
+            color: var(--muted-text-color);
+            line-height: 1.45;
+            margin: 0;
+        }}
+        .sr-only {{
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            padding: 0;
+            margin: -1px;
+            overflow: hidden;
+            clip: rect(0, 0, 0, 0);
+            white-space: nowrap;
+            border: 0;
         }}
         .search-card input {{
             border-radius: var(--radius-input);
@@ -4221,27 +4339,62 @@ def render_navigation() -> Tuple[str, str]:
             item_key = item["key"]
             item_label = NAV_LABEL_LOOKUP[item_key]
             icon = item.get("icon", "")
+            description = item.get("description", "")
+            preview_path = item.get("preview")
             is_active = item_key == current_key
+            description_text = html.escape(description)
+            preview_html = ""
+            preview_alt = f"{item_label}のプレビューサムネイル"
+            description_id = f"main-nav-desc-{item_key}"
 
-            col.markdown("<div class='main-nav-item-wrapper'>", unsafe_allow_html=True)
+            if preview_path:
+                preview_html = """
+                <figure class="nav-preview-popover__preview">
+                    <img src="{src}" alt="{alt}" loading="lazy" />
+                </figure>
+                """.format(src=html.escape(preview_path), alt=html.escape(preview_alt))
+
+            button_label = f"{item_label} – {description}" if description else item_label
+
+            col.markdown(
+                """
+                <div class="main-nav-item-wrapper" data-has-preview="{has_preview}" title="{title}">
+                """.format(
+                    has_preview=str(bool(preview_path)).lower(),
+                    title=description_text,
+                ),
+                unsafe_allow_html=True,
+            )
+
             if col.button(
-                " ",
+                button_label,
                 key=f"main_nav_button_{item_key}",
+                help=description if description else None,
                 width="stretch",
             ):
                 selected_key = item_key
+
             col.markdown(
                 """
-                <div class="main-nav-item {active_class}" data-key="{key}">
+                <div class="main-nav-item {active_class}" data-key="{key}" aria-hidden="true">
                     <span class="main-nav-item__icon">{icon}</span>
                     <span class="main-nav-item__label">{label}</span>
                 </div>
+                <div class="nav-preview-popover" role="tooltip" aria-hidden="true">
+                    {preview}
+                    <p class="nav-preview-popover__description">{description}</p>
+                </div>
+                <span class="sr-only" id="{description_id}">{description_text}</span>
                 </div>
                 """.format(
                     active_class="is-active" if is_active else "",
                     key=html.escape(item_key),
                     icon=html.escape(icon),
                     label=html.escape(item_label),
+                    preview=preview_html,
+                    description=description_text,
+                    description_text=description_text,
+                    description_id=html.escape(description_id),
                 ),
                 unsafe_allow_html=True,
             )
