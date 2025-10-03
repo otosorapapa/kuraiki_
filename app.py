@@ -581,6 +581,12 @@ TUTORIAL_INDEX: List[Dict[str, Any]] = [
 ]
 
 
+# ヘルプリソースのURLは一箇所で管理できるようにまとめておく。
+HELP_FAQ_URL = "docs/faq.md"
+HELP_GUIDE_URL = "docs/09_phase1_sample_data_onboarding.md"
+HELP_DEMO_URL = "docs/kpi_strip_demo.html"
+
+
 PRIMARY_COLOR = "#0F172A"
 SECONDARY_COLOR = "#475569"
 ACCENT_COLOR = "#2563EB"
@@ -1491,6 +1497,38 @@ def inject_mckinsey_style(*, dark_mode: bool = False, font_scale: float = 1.0) -
             font-size: 0.85rem;
             margin-bottom: 0.45rem;
         }}
+        .help-card {{
+            border-radius: var(--radius-card);
+            border: 1px solid rgba(11,31,59,0.08);
+            padding: 1.25rem 1.35rem;
+            background: var(--surface-color);
+            box-shadow: var(--shadow-sm);
+            margin-bottom: var(--spacing-lg);
+        }}
+        .help-card__title {{
+            font-weight: 700;
+            font-size: 1rem;
+            margin-bottom: 0.35rem;
+        }}
+        .help-card__description {{
+            margin: 0;
+            color: var(--muted-text-color);
+            font-size: 0.85rem;
+            line-height: 1.6;
+        }}
+        .help-card__actions {{
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.75rem;
+            margin-top: 0.9rem;
+        }}
+        .help-card__actions > div[data-testid="column"] {{
+            flex: 1 1 180px;
+        }}
+        .help-card__actions a,
+        .help-card__actions button {{
+            width: 100%;
+        }}
         .sidebar-wizard-title {{
             font-weight: 700;
             font-size: 0.95rem;
@@ -1785,6 +1823,24 @@ def render_onboarding_wizard(
             wizard_box.info("アップロードしたデータを表示しています。")
 
     wizard_box.caption("自社データはサイドバー下部のアップロードセクションから追加できます。")
+    wizard_box.divider()
+    wizard_box.markdown("### ヘルプとサポート")
+    wizard_box.caption("よくある質問や操作ガイドに素早くアクセスできます。")
+    wizard_box.link_button(
+        "FAQを見る",
+        HELP_FAQ_URL,
+        help="代表的な質問と回答を確認します。",
+    )
+    wizard_box.link_button(
+        "ドキュメントを開く",
+        HELP_GUIDE_URL,
+        help="詳細なセットアップと操作ガイドを参照します。",
+    )
+    wizard_box.link_button(
+        "ショートデモを見る",
+        HELP_DEMO_URL,
+        help="主要機能を短い動画で確認します。",
+    )
 
     wizard_box.divider()
 
@@ -1939,6 +1995,38 @@ def render_intro_section() -> None:
             unsafe_allow_html=True,
         )
         st.caption("動画の代わりに主要な操作手順をテキストで確認できます。")
+
+    st.markdown(
+        """
+        <div class="help-card">
+            <div class="help-card__title">ヘルプとサポート</div>
+            <p class="help-card__description">
+                よくある質問やドキュメント、ショートデモから操作の流れを素早く確認できます。
+            </p>
+            <div class="help-card__actions">
+        """,
+        unsafe_allow_html=True,
+    )
+    action_cols = st.columns(3)
+    with action_cols[0]:
+        st.link_button(
+            "FAQを見る",
+            HELP_FAQ_URL,
+            help="アプリの利用方法に関する代表的な質問を確認します。",
+        )
+    with action_cols[1]:
+        st.link_button(
+            "ドキュメントを開く",
+            HELP_GUIDE_URL,
+            help="セットアップや操作ガイドのドキュメントを参照します。",
+        )
+    with action_cols[2]:
+        st.link_button(
+            "ショートデモを見る",
+            HELP_DEMO_URL,
+            help="主要機能のデモ動画を別タブで再生します。",
+        )
+    st.markdown("""</div></div>""", unsafe_allow_html=True)
 
     st.markdown("---")
 
