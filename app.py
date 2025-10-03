@@ -112,6 +112,28 @@ PLAN_WIZARD_STEPS: List[Dict[str, str]] = [
 ]
 
 
+ONBOARDING_TOUR_STEPS: List[Dict[str, str]] = [
+    {
+        "key": "dashboard",
+        "title": "ダッシュボードの全体像",
+        "description": "主要KPIとアラートの概要を確認できます。ナビゲーションタブの『Dashboard』を参照してください。",
+        "highlight": "dashboard",
+    },
+    {
+        "key": "upload",
+        "title": "売上データのアップロード",
+        "description": "サイドバー下部のウィザードでチャネルごとの売上ファイルをまとめて追加できます。",
+        "highlight": "upload",
+    },
+    {
+        "key": "sharing",
+        "title": "共有とエクスポート",
+        "description": "共有ガイドを開くとCSVやレポートの出力手順が表示されます。",
+        "highlight": "sharing",
+    },
+]
+
+
 SALES_PLAN_COLUMNS = ["項目", "月次売上", "チャネル"]
 EXPENSE_PLAN_COLUMNS = ["費目", "月次金額", "区分"]
 
@@ -1461,6 +1483,12 @@ def render_onboarding_wizard(
     should_expand = not (data_loaded and filters_ready and analysis_ready)
     wizard_box = st.sidebar.expander("はじめに", expanded=should_expand)
 
+    plan_state = ensure_plan_wizard_state()
+    onboarding_tasks: Dict[str, bool] = plan_state.setdefault("onboarding_tasks", {})
+    tour_state: Dict[str, Any] = plan_state.setdefault(
+        "tour", {"active": False, "step": 0}
+    )
+
     step_definitions = [
         {
             "title": "ステップ1. データを読み込む",
@@ -1539,6 +1567,88 @@ def render_onboarding_wizard(
             wizard_box.info("アップロードしたデータを表示しています。")
 
     wizard_box.caption("自社データはサイドバー下部のアップロードセクションから追加できます。")
+
+    wizard_box.divider()
+
+    def _mark_task(task_key: str) -> None:
+        mark_onboarding_task(task_key)
+        onboarding_tasks[task_key] = True
+
+    def _cta_jump_dashboard() -> None:
+        _mark_task("view_dashboard")
+        jump_to_section("dashboard")
+
+    def _cta_open_uploads() -> None:
+        _mark_task("open_upload")
+        focus_upload_expander("all")
+
+    def _cta_show_sharing() -> None:
+        _mark_task("sharing_info")
+        display_sharing_instructions()
+
+    wizard_box.markdown("### クイックアクション")
+    cta_items = [
+        {
+            "key": "view_dashboard",
+            "label": "ダッシュボードを開く",
+            "description": "主要指標タブへジャンプして、現在のKPIサマリーを確認します。",
+            "callback": _cta_jump_dashboard,
+            "icon": "📊",
+        },
+        {
+            "key": "open_upload",
+            "label": "アップロードセクションを展開",
+            "description": "原価やKPIなどのアップロード用エクスパンダーを開いてファイルを追加します。",
+            "callback": _cta_open_uploads,
+            "icon": "📤",
+        },
+        {
+            "key": "sharing_info",
+            "label": "共有ガイドを表示",
+            "description": "レポートの書き出しやチーム共有の手順を確認します。",
+            "callback": _cta_show_sharing,
+            "icon": "🤝",
+        },
+    ]
+
+    for item in cta_items:
+        completed = bool(onboarding_tasks.get(item["key"]))
+        status = "✅" if completed else item["icon"]
+        button_label = f"{status} {item['label']}"
+        cta_container = wizard_box.container()
+        if cta_container.button(
+            button_label,
+            key=f"wizard_cta_{item['key']}",
+            help=item["description"],
+            use_container_width=True,
+            disabled=completed,
+        ):
+            item["callback"]()
+        cta_container.caption(item["description"])
+
+    wizard_box.divider()
+
+    if ONBOARDING_TOUR_STEPS:
+        wizard_box.markdown("### ガイドツアー")
+        active = bool(tour_state.get("active"))
+        step_index = int(tour_state.get("step", 0)) % len(ONBOARDING_TOUR_STEPS)
+        current_step = ONBOARDING_TOUR_STEPS[step_index]
+        if active:
+            wizard_box.success(
+                f"🧭 ステップ{step_index + 1}/{len(ONBOARDING_TOUR_STEPS)}: {current_step['title']}"
+            )
+            wizard_box.caption(current_step["description"])
+            tour_cols = wizard_box.columns(2)
+            if tour_cols[0].button("次へ", key="wizard_tour_next"):
+                advance_onboarding_tour()
+            if tour_cols[1].button("ツアーを終了", key="wizard_tour_stop"):
+                stop_onboarding_tour()
+        else:
+            wizard_box.caption(
+                "画面の主要セクションを順番に案内するウォークスルーを開始できます。"
+            )
+            if wizard_box.button("ツアーを開始", key="wizard_tour_start"):
+                start_onboarding_tour()
 
 
 def render_sidebar_disabled_placeholder() -> None:
@@ -2124,6 +2234,12 @@ def reset_plan_wizard_state() -> None:
         "sales_import_feedback": None,
         "expense_import_feedback": None,
         "metrics": {},
+        "onboarding_tasks": {
+            "view_dashboard": False,
+            "open_upload": False,
+            "sharing_info": False,
+        },
+        "tour": {"active": False, "step": 0},
     }
     for key in [
         "plan_sales_editor",
@@ -2165,9 +2281,114 @@ def ensure_plan_wizard_state() -> Dict[str, Any]:
     state.setdefault("sales_import_feedback", None)
     state.setdefault("expense_import_feedback", None)
     state.setdefault("metrics", {})
+    state.setdefault(
+        "onboarding_tasks",
+        {"view_dashboard": False, "open_upload": False, "sharing_info": False},
+    )
+    tour_state = state.setdefault("tour", {"active": False, "step": 0})
+    tour_state.setdefault("active", False)
+    tour_state.setdefault("step", 0)
     return state
 
 
+def mark_onboarding_task(task_key: str) -> None:
+    """オンボーディングCTAの完了状態を更新する。"""
+
+    state = ensure_plan_wizard_state()
+    tasks = state.setdefault(
+        "onboarding_tasks",
+        {"view_dashboard": False, "open_upload": False, "sharing_info": False},
+    )
+    tasks[task_key] = True
+
+
+def focus_upload_expander(target: str = "all") -> None:
+    """アップロード関連のエクスパンダーを開く。"""
+
+    st.session_state["open_upload_expander"] = target
+    st.session_state["highlight_sales_upload"] = True
+    trigger_rerun()
+
+
+def display_sharing_instructions() -> None:
+    """共有ガイドを画面に表示する。"""
+
+    st.session_state["show_sharing_instructions"] = True
+    trigger_rerun()
+
+
+def start_onboarding_tour() -> None:
+    """オンボーディングツアーを開始する。"""
+
+    state = ensure_plan_wizard_state()
+    tour = state.setdefault("tour", {"active": False, "step": 0})
+    tour["active"] = True
+    tour["step"] = 0
+    trigger_rerun()
+
+
+def advance_onboarding_tour() -> None:
+    """オンボーディングツアーを次のステップへ進める。"""
+
+    state = ensure_plan_wizard_state()
+    tour = state.setdefault("tour", {"active": False, "step": 0})
+    if ONBOARDING_TOUR_STEPS:
+        tour["step"] = (int(tour.get("step", 0)) + 1) % len(ONBOARDING_TOUR_STEPS)
+    trigger_rerun()
+
+
+def stop_onboarding_tour() -> None:
+    """オンボーディングツアーを終了する。"""
+
+    state = ensure_plan_wizard_state()
+    tour = state.setdefault("tour", {"active": False, "step": 0})
+    tour["active"] = False
+    tour["step"] = 0
+    trigger_rerun()
+
+
+def render_onboarding_tour_overlay() -> None:
+    """ツアーモード用のハイライトバナーを表示する。"""
+
+    state = st.session_state.get("plan_wizard")
+    if not state:
+        return
+    tour = state.get("tour", {})
+    if not tour.get("active") or not ONBOARDING_TOUR_STEPS:
+        return
+
+    step_index = int(tour.get("step", 0)) % len(ONBOARDING_TOUR_STEPS)
+    step = ONBOARDING_TOUR_STEPS[step_index]
+    st.info(
+        f"🧭 {step['title']}\n\n{step['description']}"
+    )
+
+    highlight = step.get("highlight")
+    if highlight == "upload":
+        st.session_state["open_upload_expander"] = "all"
+        st.session_state["highlight_sales_upload"] = True
+    elif highlight == "sharing":
+        st.session_state["show_sharing_instructions"] = True
+
+
+def render_sharing_instruction_banner() -> None:
+    """共有ガイドを必要に応じて表示する。"""
+
+    if not st.session_state.get("show_sharing_instructions"):
+        return
+
+    st.info(
+        """
+        **共有のヒント**
+
+        - ダッシュボード右上のダウンロードボタンからCSV/Excelを書き出せます。
+        - 計画ウィザードのサマリータブでPDF形式のレポートを保存できます。
+        - 関係者に共有する際は、フィルタ条件とデータ更新日時を併記しましょう。
+        """
+    )
+    if st.button("共有ガイドを閉じる", key="close_sharing_instructions"):
+        st.session_state["show_sharing_instructions"] = False
+        trigger_rerun()
 def append_plan_rows(
     df: pd.DataFrame,
     label_column: str,
@@ -6871,7 +7092,12 @@ def render_sidebar_upload_expander(
     """サイドバーにアイコン付きのアップロード用アコーディオンを描画する。"""
 
     file_types = file_types or ["xlsx", "xls", "csv"]
-    with st.sidebar.expander(label, expanded=False):
+    open_target = st.session_state.get("open_upload_expander")
+    should_expand = open_target in {uploader_key, "all"}
+    if should_expand:
+        st.session_state["open_upload_expander"] = None
+
+    with st.sidebar.expander(label, expanded=should_expand):
         st.markdown(
             f"""
             <div class="sidebar-upload-card">
@@ -6971,10 +7197,13 @@ def render_sales_upload_wizard(
     uploaded_files: List[Any] = []
     preview_rows: List[Dict[str, str]] = []
     unassigned_count = 0
+    highlight_upload = bool(st.session_state.pop("highlight_sales_upload", False))
 
     with st.sidebar.container():
         st.markdown("<div class='sidebar-wizard-title'>売上データ取り込みウィザード</div>", unsafe_allow_html=True)
         st.caption("複数チャネルの売上ファイルをまとめてアップロードし、チャネルへ一括割当できます。")
+        if highlight_upload:
+            st.success("このウィザードから売上ファイルをアップロードできます。")
 
         st.markdown("**ステップ1. ファイルをまとめてアップロード**")
         uploaded = st.file_uploader(
@@ -7101,6 +7330,8 @@ def main() -> None:
     inject_mckinsey_style(dark_mode=dark_mode)
 
     render_intro_section()
+    render_onboarding_tour_overlay()
+    render_sharing_instruction_banner()
 
     st.sidebar.toggle(
         "管理者モード",
