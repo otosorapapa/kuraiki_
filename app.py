@@ -834,6 +834,50 @@ def inject_mckinsey_style(*, dark_mode: bool = False) -> None:
             font-size: 0.8rem;
             font-weight: 600;
         }}
+        .dashboard-meta--empty {{
+            padding: 0.4rem 0.85rem;
+            border-radius: var(--radius-chip);
+            background: rgba(11,31,59,0.06);
+            color: var(--muted-text-color);
+            font-size: 0.8rem;
+            font-weight: 500;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+        }}
+        .dashboard-filter-chips-anchor + div[data-testid="stHorizontalBlock"] {{
+            display: flex;
+            flex-wrap: wrap;
+            gap: var(--spacing-xs);
+            margin-bottom: var(--spacing-md);
+        }}
+        .dashboard-filter-chips-anchor + div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {{
+            width: auto !important;
+            flex: 0 0 auto;
+        }}
+        .dashboard-filter-chips-anchor + div[data-testid="stHorizontalBlock"] div[data-testid="stButton"] {{
+            margin: 0;
+        }}
+        .dashboard-filter-chips-anchor + div[data-testid="stHorizontalBlock"] button {{
+            padding: 0.35rem 0.85rem;
+            border-radius: var(--radius-chip);
+            background: rgba(11,31,59,0.08);
+            color: var(--text-color);
+            font-size: 0.8rem;
+            font-weight: 600;
+            border: 1px solid rgba(11,31,59,0.12);
+            cursor: pointer;
+            transition: background-color 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+        }}
+        .dashboard-filter-chips-anchor + div[data-testid="stHorizontalBlock"] button:hover {{
+            background: rgba(11,31,59,0.12);
+            border-color: rgba(11,31,59,0.18);
+            box-shadow: 0 2px 6px rgba(11,31,59,0.12);
+        }}
+        .dashboard-filter-chips-anchor + div[data-testid="stHorizontalBlock"] button:active {{
+            background: rgba(11,31,59,0.18);
+            border-color: rgba(11,31,59,0.24);
+        }}
         div[data-testid="stMetric"] {{
             background: var(--surface-color);
             border-radius: var(--radius-card);
@@ -3723,10 +3767,30 @@ def render_kgi_cards(
                 st.caption("目標差 -")
 
 
+def clear_filter_selection(filter_name: str) -> None:
+    """指定したフィルタの選択状態をクリアしてリロードする。"""
+
+    state_key = FILTER_STATE_KEYS.get(filter_name)
+    if not state_key:
+        return
+
+    if filter_name == "store":
+        st.session_state[state_key] = None
+    else:
+        st.session_state[state_key] = []
+    trigger_rerun()
+
+
 def render_dashboard_meta(
-    latest_label: str, period_label: str, record_count: int, alert_count: int
+    latest_label: str,
+    period_label: str,
+    record_count: int,
+    alert_count: int,
+    store_selection: Optional[str] = None,
+    channel_selection: Optional[Sequence[str]] = None,
+    category_selection: Optional[Sequence[str]] = None,
 ) -> None:
-    """データのメタ情報をチップ状に表示する。"""
+    """データのメタ情報とフィルタ状態をチップ状に表示する。"""
 
     chips = [
         ("📅 最新データ", latest_label or "-"),
@@ -3743,6 +3807,71 @@ def render_dashboard_meta(
         for label, value in chips
     )
     st.markdown(f"<div class='dashboard-meta'>{chips_html}</div>", unsafe_allow_html=True)
+
+    filter_entries: List[Dict[str, Any]] = []
+
+    def _format_list(values: Sequence[str]) -> str:
+        display_values = [str(value) for value in values if value]
+        if not display_values:
+            return "-"
+        if len(display_values) <= 2:
+            return "、".join(display_values)
+        return "、".join(display_values[:2]) + f" ほか{len(display_values) - 2}件"
+
+    if store_selection:
+        filter_entries.append(
+            {
+                "label": "🏬 店舗",
+                "value": str(store_selection),
+                "filter": "store",
+                "help": "店舗フィルタをクリア",
+            }
+        )
+
+    if channel_selection:
+        formatted = _format_list(channel_selection)
+        filter_entries.append(
+            {
+                "label": "🛒 チャネル",
+                "value": formatted,
+                "filter": "channels",
+                "help": "チャネルの選択をリセット",
+            }
+        )
+
+    if category_selection:
+        formatted = _format_list(category_selection)
+        filter_entries.append(
+            {
+                "label": "🏷 カテゴリ",
+                "value": formatted,
+                "filter": "categories",
+                "help": "カテゴリの選択をリセット",
+            }
+        )
+
+    chip_container = st.container()
+    if filter_entries:
+        chip_container.markdown(
+            "<div class='dashboard-filter-chips-anchor'></div>",
+            unsafe_allow_html=True,
+        )
+        chip_columns = chip_container.columns(len(filter_entries))
+        for column, entry in zip(chip_columns, filter_entries):
+            button_label = f"{entry['label']}: {entry['value']} ✕"
+            with column:
+                st.button(
+                    button_label,
+                    key=f"filter_chip_{entry['filter']}",
+                    on_click=lambda name=entry["filter"]: clear_filter_selection(name),
+                    type="secondary",
+                    help=entry.get("help"),
+                )
+    else:
+        chip_container.markdown(
+            "<div class='dashboard-meta dashboard-meta--empty'>適用中のフィルタはありません</div>",
+            unsafe_allow_html=True,
+        )
 
 
 def render_first_level_kpi_strip(
@@ -6755,7 +6884,15 @@ def main() -> None:
                 )
 
             render_kgi_cards(selected_kpi_row, period_row, default_cash_forecast, starting_cash)
-            render_dashboard_meta(latest_label, range_label, total_records, alert_count)
+            render_dashboard_meta(
+                latest_label,
+                range_label,
+                total_records,
+                alert_count,
+                store_selection=selected_store,
+                channel_selection=selected_channels,
+                category_selection=selected_categories,
+            )
             render_status_banner(alerts)
             st.caption(f"対象期間: {period_start} 〜 {period_end}")
 
