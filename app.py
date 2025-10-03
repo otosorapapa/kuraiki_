@@ -385,6 +385,18 @@ ERROR_COLOR = "#B91C1C"
 TEXT_COLOR = "#111827"
 CAPTION_TEXT_COLOR = "#64748B"
 MUTED_TEXT_COLOR = SECONDARY_COLOR
+LIGHT_THEME_TOKENS: Dict[str, str] = {
+    "background": BACKGROUND_COLOR,
+    "surface": SURFACE_COLOR,
+    "text": TEXT_COLOR,
+    "caption": CAPTION_TEXT_COLOR,
+    "muted": MUTED_TEXT_COLOR,
+    "border_subtle": "rgba(15,23,42,0.08)",
+    "border_strong": "rgba(15,23,42,0.22)",
+    "grid": "rgba(15,23,42,0.08)",
+    "domain": "rgba(15,23,42,0.2)",
+    "surface_tint": "rgba(15,23,42,0.05)",
+}
 MCKINSEY_FONT_STACK = (
     "'Inter', 'Inter var', 'Source Sans 3', '-apple-system', 'BlinkMacSystemFont', "
     "'Segoe UI', 'Helvetica Neue', 'Arial', 'Noto Sans JP', sans-serif"
@@ -414,13 +426,49 @@ COLOR_TOKENS: Dict[str, str] = {
     "error": ERROR_COLOR,
 }
 
-DARK_THEME_TOKENS: Dict[str, str] = {
-    "background": "#050B18",
-    "surface": "#111E2E",
-    "text": "#EEF3FF",
-    "caption": "#A8B5CB",
-    "muted": "#8FA5C6",
+DARK_THEME_VARIANTS: Dict[str, Dict[str, str]] = {
+    "deep": {
+        "background": "#050B18",
+        "surface": "#111E2E",
+        "text": "#EEF3FF",
+        "caption": "#A8B5CB",
+        "muted": "#8FA5C6",
+        "border_subtle": "rgba(167,189,219,0.32)",
+        "border_strong": "rgba(199,214,238,0.6)",
+        "grid": "rgba(162,189,227,0.28)",
+        "domain": "rgba(176,204,240,0.45)",
+        "surface_tint": "rgba(90,126,173,0.22)",
+    },
+    "high_contrast": {
+        "background": "#010409",
+        "surface": "#0C1A2A",
+        "text": "#F8FBFF",
+        "caption": "#D0DCF2",
+        "muted": "#9FB7DD",
+        "border_subtle": "rgba(120,178,255,0.45)",
+        "border_strong": "rgba(127,196,255,0.85)",
+        "grid": "rgba(147,200,255,0.45)",
+        "domain": "rgba(160,210,255,0.7)",
+        "surface_tint": "rgba(116,170,250,0.32)",
+    },
 }
+
+DEFAULT_DARK_THEME_VARIANT = "deep"
+DARK_THEME_VARIANT_LABELS: Dict[str, str] = {
+    "deep": "ディープブルー",
+    "high_contrast": "ハイコントラスト",
+}
+COLOR_PALETTE_PRESETS: Dict[str, Dict[str, Union[str, List[str]]]] = {
+    "brand": {
+        "label": "ブランド",
+        "colors": [ACCENT_COLOR, SUCCESS_COLOR],
+    },
+    "colorblind": {
+        "label": "ユニバーサル",
+        "colors": ["#0072B2", "#E69F00"],
+    },
+}
+DEFAULT_CHART_PALETTE_KEY = "brand"
 
 PHASE2_SESSION_DEFAULTS: Dict[str, Any] = {
     "scenario_inputs": [],
@@ -518,13 +566,66 @@ CF_COLOR_MAPPING = {
     "返済": WARNING_COLOR,
 }
 
-PLOTLY_COLORWAY = [
-    SALES_SERIES_COLOR,
-    GROSS_SERIES_COLOR,
-    OPERATING_SERIES_COLOR,
-    YOY_SERIES_COLOR,
-    SUCCESS_COLOR,
-]
+def _parse_rem(value: Union[str, float, int]) -> float:
+    """rem単位の文字列から数値部分を抽出し、小数として返す。"""
+
+    if isinstance(value, (int, float)):
+        return float(value)
+    stripped = value.strip().lower().replace("rem", "")
+    try:
+        return float(stripped)
+    except ValueError as exc:  # pragma: no cover - defensive
+        raise ValueError(f"Invalid rem value: {value!r}") from exc
+
+
+def _scaled_rem(value: Union[str, float, int], scale: float) -> str:
+    """rem表記の値にスケールを掛け合わせ、rem文字列として返す。"""
+
+    return f"{_parse_rem(value) * scale:.2f}rem"
+
+
+def _rem_to_px(value: Union[str, float, int], scale: float, *, base: int = 16) -> int:
+    """rem表記をpxに換算する。Streamlit/ブラウザ標準の16pxを基準とする。"""
+
+    return int(round(_parse_rem(value) * scale * base))
+
+
+def get_font_scale() -> float:
+    """現在のフォントスケールをセッション状態から取得する。"""
+
+    return float(st.session_state.get("ui_font_scale", 1.0))
+
+
+def get_active_chart_colorway() -> List[str]:
+    """ユーザー設定に基づいたチャートの配色セットを返す。"""
+
+    palette_key = st.session_state.get("ui_color_palette", DEFAULT_CHART_PALETTE_KEY)
+    palette = COLOR_PALETTE_PRESETS.get(palette_key)
+    if not palette:
+        palette = COLOR_PALETTE_PRESETS[DEFAULT_CHART_PALETTE_KEY]
+    colors = list(palette["colors"])  # type: ignore[index]
+    if len(colors) < 2:
+        colors.append(SECONDARY_COLOR)
+    return colors
+
+
+def get_theme_tokens(*, dark_mode: bool, variant: Optional[str] = None) -> Dict[str, str]:
+    """現在のテーマに応じたトークンセットを返す。"""
+
+    if not dark_mode:
+        return LIGHT_THEME_TOKENS
+    chosen = variant or st.session_state.get("ui_dark_variant", DEFAULT_DARK_THEME_VARIANT)
+    return DARK_THEME_VARIANTS.get(chosen, DARK_THEME_VARIANTS[DEFAULT_DARK_THEME_VARIANT])
+
+
+def ensure_theme_state_defaults() -> None:
+    """テーマ関連のセッションデフォルト値を設定する。"""
+
+    st.session_state.setdefault("ui_color_palette", DEFAULT_CHART_PALETTE_KEY)
+    st.session_state.setdefault("ui_dark_variant", DEFAULT_DARK_THEME_VARIANT)
+    st.session_state.setdefault("ui_font_scale", 1.0)
+    st.session_state.setdefault("ui_dark_palette_saved", DEFAULT_CHART_PALETTE_KEY)
+    st.session_state.setdefault("ui_dark_variant_saved", DEFAULT_DARK_THEME_VARIANT)
 
 HEATMAP_BLUE_SCALE = [[0.0, "#E2E8F0"], [0.5, "#60A5FA"], [1.0, ACCENT_COLOR]]
 
@@ -539,29 +640,50 @@ KGI_TARGETS = {
 def apply_chart_theme(fig):
     """デザイン・トークンに基づいたPlotly共通スタイルを適用する。"""
 
+    ensure_theme_state_defaults()
+    font_scale = get_font_scale()
+    tokens = st.session_state.get("ui_active_tokens", LIGHT_THEME_TOKENS)
+    colorway = get_active_chart_colorway()
+    body_px = _rem_to_px(TYPOGRAPHY_TOKENS["body"]["size"], font_scale)
+    caption_px = _rem_to_px(TYPOGRAPHY_TOKENS["caption"]["size"], font_scale)
+    title_px = _rem_to_px(TYPOGRAPHY_TOKENS["h2"]["size"], font_scale)
+
     fig.update_layout(
-        font=dict(family=MCKINSEY_FONT_STACK, color=TEXT_COLOR),
-        title=dict(font=dict(size=18, color=TEXT_COLOR, family=MCKINSEY_FONT_STACK)),
-        legend=dict(bgcolor="rgba(0,0,0,0)", font=dict(size=12, color=TEXT_COLOR)),
+        font=dict(family=MCKINSEY_FONT_STACK, color=tokens["text"], size=body_px),
+        title=dict(
+            font=dict(size=title_px, color=tokens["text"], family=MCKINSEY_FONT_STACK)
+        ),
+        legend=dict(
+            bgcolor="rgba(0,0,0,0)",
+            font=dict(size=caption_px, color=tokens["text"]),
+        ),
         plot_bgcolor="rgba(0,0,0,0)",
         paper_bgcolor="rgba(0,0,0,0)",
         margin=dict(l=48, r=36, t=60, b=48),
-        hoverlabel=dict(font=dict(family=MCKINSEY_FONT_STACK, color=TEXT_COLOR)),
-        colorway=PLOTLY_COLORWAY,
+        hoverlabel=dict(
+            font=dict(
+                family=MCKINSEY_FONT_STACK,
+                color=tokens["text"],
+                size=body_px,
+            )
+        ),
+        colorway=colorway,
     )
+    axis_tick_font = dict(color=tokens["muted"], size=caption_px)
+    axis_title_font = dict(color=tokens["muted"], size=caption_px)
     fig.update_xaxes(
         showgrid=True,
-        gridcolor="rgba(11,31,59,0.08)",
-        linecolor="rgba(11,31,59,0.2)",
-        tickfont=dict(color=MUTED_TEXT_COLOR),
-        title_font=dict(color=MUTED_TEXT_COLOR),
+        gridcolor=tokens["grid"],
+        linecolor=tokens["domain"],
+        tickfont=axis_tick_font,
+        title_font=axis_title_font,
     )
     fig.update_yaxes(
         showgrid=True,
-        gridcolor="rgba(11,31,59,0.08)",
-        linecolor="rgba(11,31,59,0.2)",
-        tickfont=dict(color=MUTED_TEXT_COLOR),
-        title_font=dict(color=MUTED_TEXT_COLOR),
+        gridcolor=tokens["grid"],
+        linecolor=tokens["domain"],
+        tickfont=axis_tick_font,
+        title_font=axis_title_font,
     )
     return fig
 
@@ -569,38 +691,76 @@ def apply_chart_theme(fig):
 def apply_altair_theme(chart: alt.Chart) -> alt.Chart:
     """Altairグラフに共通のスタイル・タイポグラフィを適用する。"""
 
+    ensure_theme_state_defaults()
+    font_scale = get_font_scale()
+    tokens = st.session_state.get("ui_active_tokens", LIGHT_THEME_TOKENS)
+    palette = get_active_chart_colorway()
+    axis_label_size = _rem_to_px(TYPOGRAPHY_TOKENS["body_small"]["size"], font_scale)
+    axis_title_size = _rem_to_px(TYPOGRAPHY_TOKENS["body"]["size"], font_scale)
+    legend_size = _rem_to_px(TYPOGRAPHY_TOKENS["body_small"]["size"], font_scale)
+    title_size = _rem_to_px(TYPOGRAPHY_TOKENS["h2"]["size"], font_scale)
+
     return (
         chart.configure_axis(
             labelFont=MCKINSEY_FONT_STACK,
             titleFont=MCKINSEY_FONT_STACK,
-            labelColor=MUTED_TEXT_COLOR,
-            titleColor=TEXT_COLOR,
-            gridColor="rgba(11,31,59,0.1)",
-            domainColor="rgba(11,31,59,0.18)",
+            labelColor=tokens["muted"],
+            titleColor=tokens["text"],
+            labelFontSize=axis_label_size,
+            titleFontSize=axis_title_size,
+            gridColor=tokens["grid"],
+            domainColor=tokens["domain"],
         )
         .configure_legend(
             titleFont=MCKINSEY_FONT_STACK,
             labelFont=MCKINSEY_FONT_STACK,
-            labelColor=TEXT_COLOR,
-            titleColor=MUTED_TEXT_COLOR,
+            labelColor=tokens["text"],
+            titleColor=tokens["muted"],
+            titleFontSize=legend_size,
+            labelFontSize=legend_size,
             orient="top",
             direction="horizontal",
             symbolSize=120,
         )
+        .configure_range(category=palette, ordinal=palette)
         .configure_view(strokeOpacity=0)
-        .configure_title(font=MCKINSEY_FONT_STACK, color=TEXT_COLOR, fontSize=18)
-        .configure_mark(font=MCKINSEY_FONT_STACK)
+        .configure_title(
+            font=MCKINSEY_FONT_STACK,
+            color=tokens["text"],
+            fontSize=title_size,
+        )
+        .configure_mark(
+            font=MCKINSEY_FONT_STACK,
+            color=palette[0],
+            fill=palette[0],
+            stroke=palette[0],
+        )
     )
 
 
-def inject_mckinsey_style(*, dark_mode: bool = False) -> None:
+def inject_mckinsey_style(
+    *, dark_mode: bool = False, theme_variant: Optional[str] = None, font_scale: Optional[float] = None
+) -> None:
     """デザイン・トークンとマッキンゼー風スタイルをアプリに適用する。"""
 
-    surface_color = DARK_THEME_TOKENS["surface"] if dark_mode else SURFACE_COLOR
-    background_color = DARK_THEME_TOKENS["background"] if dark_mode else BACKGROUND_COLOR
-    text_color = DARK_THEME_TOKENS["text"] if dark_mode else TEXT_COLOR
-    caption_color = DARK_THEME_TOKENS["caption"] if dark_mode else CAPTION_TEXT_COLOR
-    muted_text_color = DARK_THEME_TOKENS["muted"] if dark_mode else MUTED_TEXT_COLOR
+    ensure_theme_state_defaults()
+    tokens = get_theme_tokens(dark_mode=dark_mode, variant=theme_variant)
+    st.session_state["ui_active_tokens"] = tokens
+
+    resolved_font_scale = font_scale if font_scale is not None else get_font_scale()
+    if font_scale is not None:
+        st.session_state["ui_font_scale"] = resolved_font_scale
+
+    chart_colors = get_active_chart_colorway()
+    chart_primary = chart_colors[0]
+    chart_secondary = chart_colors[1] if len(chart_colors) > 1 else chart_colors[0]
+
+    typography_scaled = {
+        "h1": _scaled_rem(TYPOGRAPHY_TOKENS["h1"]["size"], resolved_font_scale),
+        "h2": _scaled_rem(TYPOGRAPHY_TOKENS["h2"]["size"], resolved_font_scale),
+        "body": _scaled_rem(TYPOGRAPHY_TOKENS["body"]["size"], resolved_font_scale),
+        "caption": _scaled_rem(TYPOGRAPHY_TOKENS["caption"]["size"], resolved_font_scale),
+    }
 
     st.markdown(
         f"""
@@ -618,22 +778,30 @@ def inject_mckinsey_style(*, dark_mode: bool = False) -> None:
             --success-surface: {SUCCESS_SURFACE_COLOR};
             --warning-surface: {WARNING_SURFACE_COLOR};
             --error-surface: {ERROR_SURFACE_COLOR};
-            --surface-color: {surface_color};
-            --background-color: {background_color};
-            --text-color: {text_color};
-            --muted-text-color: {muted_text_color};
-            --caption-text-color: {caption_color};
+            --surface-color: {tokens['surface']};
+            --background-color: {tokens['background']};
+            --text-color: {tokens['text']};
+            --muted-text-color: {tokens['muted']};
+            --caption-text-color: {tokens['caption']};
+            --border-subtle-color: {tokens['border_subtle']};
+            --border-strong-color: {tokens['border_strong']};
+            --surface-tint-color: {tokens['surface_tint']};
+            --grid-color: {tokens['grid']};
+            --domain-color: {tokens['domain']};
             --font-family: {MCKINSEY_FONT_STACK};
             --alt-font-family: {ALT_FONT_FAMILY};
             --numeric-font-family: {NUMERIC_FONT_STACK};
-            --h1-size: {TYPOGRAPHY_TOKENS['h1']['size']};
+            --h1-size: {typography_scaled['h1']};
             --h1-line-height: {TYPOGRAPHY_TOKENS['h1']['line_height']};
-            --h2-size: {TYPOGRAPHY_TOKENS['h2']['size']};
+            --h2-size: {typography_scaled['h2']};
             --h2-line-height: {TYPOGRAPHY_TOKENS['h2']['line_height']};
-            --body-size: {TYPOGRAPHY_TOKENS['body']['size']};
+            --body-size: {typography_scaled['body']};
             --body-line-height: {TYPOGRAPHY_TOKENS['body']['line_height']};
-            --caption-size: {TYPOGRAPHY_TOKENS['caption']['size']};
+            --caption-size: {typography_scaled['caption']};
             --caption-line-height: {TYPOGRAPHY_TOKENS['caption']['line_height']};
+            --font-scale: {resolved_font_scale:.2f};
+            --chart-primary: {chart_primary};
+            --chart-secondary: {chart_secondary};
             --spacing-xs: {SPACING_SCALE['xs']};
             --spacing-sm: {SPACING_SCALE['sm']};
             --spacing-md: {SPACING_SCALE['md']};
@@ -693,12 +861,12 @@ def inject_mckinsey_style(*, dark_mode: bool = False) -> None:
             margin-bottom: {SPACING_SCALE['sm']};
         }}
         main .block-container h3 {{
-            font-size: 1.15rem;
+            font-size: calc(1.15rem * var(--font-scale));
             font-weight: 600;
             margin-bottom: var(--spacing-xs);
         }}
         main .block-container h4 {{
-            font-size: 1rem;
+            font-size: calc(1rem * var(--font-scale));
             font-weight: 600;
         }}
         .stMarkdown li,
@@ -719,7 +887,7 @@ def inject_mckinsey_style(*, dark_mode: bool = False) -> None:
             background: var(--surface-color);
             border-radius: var(--radius-card);
             padding: 2rem;
-            border: 1px solid rgba(11,31,59,0.08);
+            border: 1px solid var(--border-subtle-color);
             box-shadow: var(--shadow-md);
         }}
         .hero-panel {{
@@ -780,7 +948,7 @@ def inject_mckinsey_style(*, dark_mode: bool = False) -> None:
             background: var(--surface-color);
             border-radius: var(--radius-card);
             padding: 1.5rem 1.75rem;
-            border: 1px solid rgba(11,31,59,0.08);
+            border: 1px solid var(--border-subtle-color);
             box-shadow: var(--shadow-md);
             margin-bottom: var(--spacing-lg);
         }}
@@ -805,7 +973,7 @@ def inject_mckinsey_style(*, dark_mode: bool = False) -> None:
             background: var(--surface-color);
             border-radius: var(--radius-card);
             padding: 1.25rem 1.5rem;
-            border: 1px solid rgba(11,31,59,0.08);
+            border: 1px solid var(--border-subtle-color);
             box-shadow: var(--shadow-sm);
         }}
         .kpi-strip__label {{
@@ -837,7 +1005,7 @@ def inject_mckinsey_style(*, dark_mode: bool = False) -> None:
         .dashboard-meta__chip {{
             padding: 0.4rem 0.85rem;
             border-radius: var(--radius-chip);
-            background: rgba(11,31,59,0.08);
+            background: var(--surface-tint-color);
             color: var(--text-color);
             font-size: 0.8rem;
             font-weight: 600;
@@ -845,7 +1013,7 @@ def inject_mckinsey_style(*, dark_mode: bool = False) -> None:
         .dashboard-meta--empty {{
             padding: 0.4rem 0.85rem;
             border-radius: var(--radius-chip);
-            background: rgba(11,31,59,0.06);
+            background: var(--surface-tint-color);
             color: var(--muted-text-color);
             font-size: 0.8rem;
             font-weight: 500;
@@ -869,28 +1037,28 @@ def inject_mckinsey_style(*, dark_mode: bool = False) -> None:
         .dashboard-filter-chips-anchor + div[data-testid="stHorizontalBlock"] button {{
             padding: 0.35rem 0.85rem;
             border-radius: var(--radius-chip);
-            background: rgba(11,31,59,0.08);
+            background: var(--surface-tint-color);
             color: var(--text-color);
             font-size: 0.8rem;
             font-weight: 600;
-            border: 1px solid rgba(11,31,59,0.12);
+            border: 1px solid var(--border-strong-color);
             cursor: pointer;
             transition: background-color 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
         }}
         .dashboard-filter-chips-anchor + div[data-testid="stHorizontalBlock"] button:hover {{
-            background: rgba(11,31,59,0.12);
-            border-color: rgba(11,31,59,0.18);
-            box-shadow: 0 2px 6px rgba(11,31,59,0.12);
+            background: var(--surface-tint-color);
+            border-color: var(--border-strong-color);
+            box-shadow: 0 2px 6px rgba(15,23,42,0.16);
         }}
         .dashboard-filter-chips-anchor + div[data-testid="stHorizontalBlock"] button:active {{
-            background: rgba(11,31,59,0.18);
-            border-color: rgba(11,31,59,0.24);
+            background: var(--surface-tint-color);
+            border-color: var(--border-strong-color);
         }}
         div[data-testid="stMetric"] {{
             background: var(--surface-color);
             border-radius: var(--radius-card);
             padding: 1.25rem 1.5rem;
-            border: 1px solid rgba(11,31,59,0.1);
+            border: 1px solid var(--border-subtle-color);
             box-shadow: var(--shadow-md);
         }}
         div[data-testid="stMetricLabel"] {{
@@ -971,18 +1139,18 @@ def inject_mckinsey_style(*, dark_mode: bool = False) -> None:
             background: var(--surface-color);
             border-radius: var(--radius-card);
             padding: 1.25rem 1.4rem;
-            border: 1px solid rgba(11,31,59,0.08);
+            border: 1px solid var(--border-subtle-color);
             box-shadow: var(--shadow-md);
         }}
         section[data-testid="stSidebar"] {{
             background: var(--surface-color);
             color: var(--text-color);
-            border-right: 1px solid rgba(11,31,59,0.08);
+            border-right: 1px solid var(--border-subtle-color);
         }}
         section[data-testid="stSidebar"] .sidebar-section {{
             background: var(--surface-color);
             border-radius: var(--radius-card);
-            border: 1px solid rgba(11,31,59,0.08);
+            border: 1px solid var(--border-subtle-color);
             padding: 1.25rem 1.35rem;
             box-shadow: var(--shadow-sm);
             margin-bottom: var(--spacing-sm);
@@ -1006,7 +1174,7 @@ def inject_mckinsey_style(*, dark_mode: bool = False) -> None:
         .main-nav-block div[role="radiogroup"] label {{
             padding: 0.5rem 1.2rem;
             border-radius: var(--radius-chip);
-            border: 1px solid rgba(11,31,59,0.16);
+            border: 1px solid var(--border-strong-color);
             background: var(--surface-color);
             font-weight: 600;
             color: var(--text-color);
@@ -1014,11 +1182,11 @@ def inject_mckinsey_style(*, dark_mode: bool = False) -> None:
         .main-nav-block div[role="radiogroup"] label[aria-checked="true"] {{
             background: var(--primary-color);
             color: #ffffff;
-            border-color: rgba(11,31,59,0.35);
+            border-color: var(--border-strong-color);
         }}
         .search-card input {{
             border-radius: var(--radius-input);
-            border: 1px solid rgba(11,31,59,0.18);
+            border: 1px solid var(--border-strong-color);
             padding: 0.6rem 0.9rem;
         }}
         .stApp main .stButton>button,
@@ -1037,7 +1205,7 @@ def inject_mckinsey_style(*, dark_mode: bool = False) -> None:
         }}
         div[data-baseweb="tab-list"] {{
             gap: var(--spacing-xs);
-            border-bottom: 1px solid rgba(11,31,59,0.12);
+            border-bottom: 1px solid var(--border-subtle-color);
             margin-bottom: var(--spacing-sm);
         }}
         div[data-baseweb="tab"] {{
@@ -1053,7 +1221,7 @@ def inject_mckinsey_style(*, dark_mode: bool = False) -> None:
         }}
         input, select, textarea {{
             border-radius: var(--radius-input) !important;
-            border: 1px solid rgba(11,31,59,0.18) !important;
+            border: 1px solid var(--border-strong-color) !important;
             padding: 0.6rem 0.9rem !important;
             font-size: var(--body-size) !important;
         }}
@@ -1069,11 +1237,11 @@ def inject_mckinsey_style(*, dark_mode: bool = False) -> None:
             }}
         }}
         .onboarding-wizard {{
-            border: 1px solid rgba(11,31,59,0.12);
+            border: 1px solid var(--border-strong-color);
             border-radius: var(--radius-card);
             padding: 1.25rem 1.1rem 1.4rem;
             margin-bottom: var(--spacing-sm);
-            background: rgba(11,31,59,0.02);
+            background: var(--surface-tint-color);
             box-shadow: var(--shadow-sm);
         }}
         .onboarding-wizard--sidebar {{
@@ -1091,8 +1259,8 @@ def inject_mckinsey_style(*, dark_mode: bool = False) -> None:
             width: 100%;
             justify-content: flex-start;
             gap: 0.6rem;
-            background: rgba(11,31,59,0.05);
-            border: 1px solid rgba(11,31,59,0.12);
+            background: var(--surface-tint-color);
+            border: 1px solid var(--border-strong-color);
             color: var(--text-color);
             box-shadow: none;
             padding: 0.65rem 0.85rem;
@@ -1104,14 +1272,14 @@ def inject_mckinsey_style(*, dark_mode: bool = False) -> None:
             font-weight: 600;
         }}
         section[data-testid="stSidebar"] button[data-testid="stBaseButton-primary"]:hover {{
-            background: rgba(11,31,59,0.08);
-            border-color: rgba(11,31,59,0.2);
+            background: var(--surface-tint-color);
+            border-color: var(--border-strong-color);
         }}
         .onboarding-step {{
             border-radius: var(--radius-card);
             padding: 0.75rem 0.85rem;
-            background: rgba(11,31,59,0.04);
-            border: 1px dashed rgba(11,31,59,0.1);
+            background: var(--surface-tint-color);
+            border: 1px dashed var(--border-subtle-color);
             margin-bottom: var(--spacing-xs);
         }}
         .onboarding-step--done {{
@@ -1133,7 +1301,7 @@ def inject_mckinsey_style(*, dark_mode: bool = False) -> None:
             width: 1.6rem;
             height: 1.6rem;
             border-radius: 50%;
-            background: rgba(11,31,59,0.1);
+            background: var(--surface-tint-color);
             color: var(--text-color);
             font-size: 0.8rem;
             font-weight: 700;
@@ -1152,19 +1320,19 @@ def inject_mckinsey_style(*, dark_mode: bool = False) -> None:
         }}
         .sidebar-disabled {{
             border-radius: var(--radius-card);
-            border: 1px dashed rgba(11,31,59,0.12);
+            border: 1px dashed var(--border-subtle-color);
             padding: 0.85rem 1rem;
             margin-bottom: var(--spacing-sm);
-            background: rgba(11,31,59,0.04);
+            background: var(--surface-tint-color);
             color: var(--muted-text-color);
             font-size: 0.82rem;
         }}
         .empty-dashboard {{
             border-radius: var(--radius-card);
-            border: 1px dashed rgba(11,31,59,0.16);
+            border: 1px dashed var(--border-subtle-color);
             padding: 2rem 2.25rem;
             text-align: center;
-            background: rgba(11,31,59,0.03);
+            background: var(--surface-tint-color);
             color: var(--muted-text-color);
             margin-bottom: var(--spacing-lg);
         }}
@@ -1175,9 +1343,9 @@ def inject_mckinsey_style(*, dark_mode: bool = False) -> None:
         }}
         .quick-tutorial {{
             border-radius: var(--radius-card);
-            border: 1px solid rgba(11,31,59,0.08);
+            border: 1px solid var(--border-subtle-color);
             padding: 1.1rem 1.2rem;
-            background: rgba(11,31,59,0.03);
+            background: var(--surface-tint-color);
             box-shadow: var(--shadow-sm);
         }}
         .quick-tutorial__title {{
@@ -1203,7 +1371,7 @@ def inject_mckinsey_style(*, dark_mode: bool = False) -> None:
             align-items: center;
             justify-content: space-between;
             padding: 0.35rem 0;
-            border-bottom: 1px dashed rgba(11,31,59,0.1);
+            border-bottom: 1px dashed var(--border-subtle-color);
             font-size: 0.82rem;
         }}
         .wizard-file-item:last-of-type {{
@@ -5463,7 +5631,7 @@ def render_fixed_cost_breakdown(
         breakdown["月次金額"] = breakdown["月次金額"] * target_total / total_current
 
     breakdown["店舗"] = "全社"
-    palette = PLOTLY_COLORWAY + [ACCENT_COLOR, SECONDARY_COLOR]
+    palette = get_active_chart_colorway() + [ACCENT_COLOR, SECONDARY_COLOR]
     fig = go.Figure()
     for idx, row in enumerate(breakdown.itertuples()):
         fig.add_bar(
@@ -6615,6 +6783,7 @@ def render_sales_upload_wizard(
 
 def main() -> None:
     init_phase2_session_state()
+    ensure_theme_state_defaults()
 
     if st.session_state.pop("pending_enable_sample_data", False):
         set_state_and_widget("use_sample_data", True)
@@ -6657,7 +6826,62 @@ def main() -> None:
     )
     st.session_state["ui_theme_mode"] = "dark" if dark_mode else "light"
 
-    inject_mckinsey_style(dark_mode=dark_mode)
+    font_scale_default = int(round(st.session_state.get("ui_font_scale", 1.0) * 100))
+    font_scale_default = max(85, min(120, font_scale_default))
+    font_scale_percent = st.sidebar.slider(
+        "本文フォントサイズ",
+        min_value=85,
+        max_value=120,
+        value=font_scale_default,
+        step=5,
+        help="本文や表の文字サイズを調整します (基準値=100)。",
+    )
+    font_scale = font_scale_percent / 100.0
+    st.session_state["ui_font_scale"] = font_scale
+
+    if dark_mode:
+        variant_options = list(DARK_THEME_VARIANTS.keys())
+        current_variant = st.session_state.get("ui_dark_variant_saved", DEFAULT_DARK_THEME_VARIANT)
+        try:
+            variant_index = variant_options.index(current_variant)
+        except ValueError:
+            variant_index = 0
+        selected_variant = st.sidebar.selectbox(
+            "暗色テーマのコントラスト",
+            variant_options,
+            index=variant_index,
+            format_func=lambda key: DARK_THEME_VARIANT_LABELS.get(key, key),
+            help="暗色テーマ時の背景/境界のコントラストを調整します。",
+        )
+        st.session_state["ui_dark_variant_saved"] = selected_variant
+        st.session_state["ui_dark_variant"] = selected_variant
+
+        palette_options = list(COLOR_PALETTE_PRESETS.keys())
+        current_palette = st.session_state.get("ui_dark_palette_saved", DEFAULT_CHART_PALETTE_KEY)
+        try:
+            palette_index = palette_options.index(current_palette)
+        except ValueError:
+            palette_index = 0
+        selected_palette = st.sidebar.selectbox(
+            "チャートカラーパレット",
+            palette_options,
+            index=palette_index,
+            format_func=lambda key: str(COLOR_PALETTE_PRESETS[key]["label"]),
+            help="色覚多様性に配慮した配色に切り替えられます。",
+        )
+        st.session_state["ui_dark_palette_saved"] = selected_palette
+        st.session_state["ui_color_palette"] = selected_palette
+    else:
+        st.session_state["ui_dark_variant"] = st.session_state.get(
+            "ui_dark_variant_saved", DEFAULT_DARK_THEME_VARIANT
+        )
+        st.session_state["ui_color_palette"] = DEFAULT_CHART_PALETTE_KEY
+
+    inject_mckinsey_style(
+        dark_mode=dark_mode,
+        theme_variant=st.session_state.get("ui_dark_variant", DEFAULT_DARK_THEME_VARIANT),
+        font_scale=font_scale,
+    )
 
     render_intro_section()
 
@@ -7385,7 +7609,7 @@ def main() -> None:
                     "period_start": f"{selected_granularity_label}開始日",
                 },
                 custom_data=["channel", "period_label"],
-                color_discrete_sequence=PLOTLY_COLORWAY,
+                color_discrete_sequence=get_active_chart_colorway(),
             )
             channel_chart = apply_chart_theme(channel_chart)
             channel_chart.update_layout(
@@ -7436,7 +7660,7 @@ def main() -> None:
                     "period_start": f"{selected_granularity_label}開始日",
                 },
                 custom_data=["category", "period_label"],
-                color_discrete_sequence=PLOTLY_COLORWAY,
+                color_discrete_sequence=get_active_chart_colorway(),
             )
             category_bar = apply_chart_theme(category_bar)
             category_bar.update_layout(
@@ -7964,7 +8188,7 @@ def main() -> None:
                         y="sales_amount",
                         labels={column: label, "sales_amount": "売上高"},
                         title=f"{label}別売上高 (上位{min(len(chart_data), 10)}件)",
-                        color_discrete_sequence=PLOTLY_COLORWAY,
+                        color_discrete_sequence=get_active_chart_colorway(),
                     )
                     bar_chart = apply_chart_theme(bar_chart)
                     bar_chart.update_layout(yaxis_title="円", xaxis_title=label)
