@@ -1844,67 +1844,134 @@ def render_global_filter_bar(
     freq_widget_key: str,
     apply_callback: Callable[[str], None],
     default_filters: Dict[str, Any],
-) -> None:
+) -> Dict[str, Any]:
     """ダッシュボード上部に表示する共通フィルタバーを描画する。"""
 
-    with st.container():
-        st.markdown("### 絞り込み条件")
-        st.selectbox(
-            "店舗選択",
-            options=store_options,
-            index=store_index,
-            key=store_widget_key,
-            help="最後に選択した店舗は次回アクセス時も自動で設定されます。",
-            on_change=apply_callback,
-            args=(store_state_key,),
-        )
-        st.date_input(
-            "表示期間（開始日 / 終了日）",
-            value=st.session_state[period_state_key],
-            min_value=min_date,
-            max_value=max_date,
-            key=period_widget_key,
-            help="ダッシュボードに表示する対象期間です。開始日と終了日を指定してください。",
-            on_change=apply_callback,
-            args=(period_state_key,),
-        )
-        st.multiselect(
-            "表示するチャネル",
-            options=channel_options,
-            default=st.session_state[channel_state_key] if channel_options else [],
-            key=channel_widget_key,
-            help="チャネル選択は関連レポートでも共有されます。",
-            on_change=apply_callback,
-            args=(channel_state_key,),
-        )
-        st.multiselect(
-            "表示するカテゴリ",
-            options=category_options,
-            default=st.session_state[category_state_key] if category_options else [],
-            key=category_widget_key,
-            help="カテゴリ選択は粗利・在庫の分析タブにも共有されます。",
-            on_change=apply_callback,
-            args=(category_state_key,),
-        )
-        st.selectbox(
-            "ダッシュボード表示粒度",
-            options=freq_labels,
-            index=freq_index,
-            key=freq_widget_key,
-            help="売上やKPIの集計粒度を選べます。月次・週次・四半期などの粒度に対応しています。",
-            on_change=apply_callback,
-            args=(freq_state_key,),
-        )
-        st.caption("選択内容は変更と同時にダッシュボードへ反映されます。")
+    expanded_state_key = "global_filter_bar_expanded"
+    if expanded_state_key not in st.session_state:
+        st.session_state[expanded_state_key] = True
 
-        button_cols = st.columns(2)
-        with button_cols[0]:
-            if st.button("設定をリセット", key="reset_filter_button"):
-                reset_filters(default_filters)
-        with button_cols[1]:
-            if st.button("セッション状態を初期化", key="clear_session_button"):
-                st.session_state.clear()
-                trigger_rerun()
+    def _format_date(value: Any) -> str:
+        if isinstance(value, (datetime, date)):
+            return value.strftime("%Y-%m-%d")
+        if hasattr(value, "to_pydatetime"):
+            return value.to_pydatetime().strftime("%Y-%m-%d")
+        return str(value)
+
+    period_value = st.session_state[period_state_key]
+    if isinstance(period_value, (list, tuple)) and len(period_value) >= 2:
+        start_period, end_period = period_value[0], period_value[1]
+    else:
+        start_period = end_period = period_value
+
+    selected_store = st.session_state.get(store_state_key, "全社")
+    selected_channels = st.session_state.get(channel_state_key, [])
+    selected_categories = st.session_state.get(category_state_key, [])
+    selected_freq_label = st.session_state.get(freq_state_key, freq_labels[freq_index])
+
+    def _format_collection(values: Sequence[str]) -> str:
+        if not values:
+            return "未選択"
+        display_values = list(values)
+        if len(display_values) <= 3:
+            return "、".join(display_values)
+        return f"{display_values[0]} 他{len(display_values) - 1}件"
+
+    summary_text = " ｜ ".join(
+        [
+            f"店舗: {selected_store}",
+            f"期間: {_format_date(start_period)}〜{_format_date(end_period)}",
+            f"粒度: {selected_freq_label}",
+            f"チャネル: {_format_collection(selected_channels)}",
+            f"カテゴリ: {_format_collection(selected_categories)}",
+        ]
+    )
+
+    with st.container():
+        header_cols = st.columns([1, 5])
+        expanded = st.session_state[expanded_state_key]
+        with header_cols[0]:
+            toggle_label = "フィルタを閉じる" if expanded else "フィルタを開く"
+            if st.button(toggle_label, key="toggle_global_filter"):
+                st.session_state[expanded_state_key] = not expanded
+                expanded = st.session_state[expanded_state_key]
+        with header_cols[1]:
+            if not expanded:
+                pill_html = (
+                    "<div style=\""
+                    "background-color: rgba(49, 130, 206, 0.12);"
+                    "color: rgb(30, 64, 175);"
+                    "padding: 0.4rem 0.9rem;"
+                    "border-radius: 999px;"
+                    "font-size: 0.85rem;"
+                    "display: inline-block;"
+                    "\">"
+                    f"{html.escape(summary_text)}"
+                    "</div>"
+                )
+                st.markdown(pill_html, unsafe_allow_html=True)
+
+        expanded = st.session_state[expanded_state_key]
+        if expanded:
+            st.markdown("### 絞り込み条件")
+            st.selectbox(
+                "店舗選択",
+                options=store_options,
+                index=store_index,
+                key=store_widget_key,
+                help="最後に選択した店舗は次回アクセス時も自動で設定されます。",
+                on_change=apply_callback,
+                args=(store_state_key,),
+            )
+            st.date_input(
+                "表示期間（開始日 / 終了日）",
+                value=st.session_state[period_state_key],
+                min_value=min_date,
+                max_value=max_date,
+                key=period_widget_key,
+                help="ダッシュボードに表示する対象期間です。開始日と終了日を指定してください。",
+                on_change=apply_callback,
+                args=(period_state_key,),
+            )
+            st.multiselect(
+                "表示するチャネル",
+                options=channel_options,
+                default=st.session_state[channel_state_key] if channel_options else [],
+                key=channel_widget_key,
+                help="チャネル選択は関連レポートでも共有されます。",
+                on_change=apply_callback,
+                args=(channel_state_key,),
+            )
+            st.multiselect(
+                "表示するカテゴリ",
+                options=category_options,
+                default=st.session_state[category_state_key] if category_options else [],
+                key=category_widget_key,
+                help="カテゴリ選択は粗利・在庫の分析タブにも共有されます。",
+                on_change=apply_callback,
+                args=(category_state_key,),
+            )
+            st.selectbox(
+                "ダッシュボード表示粒度",
+                options=freq_labels,
+                index=freq_index,
+                key=freq_widget_key,
+                help="売上やKPIの集計粒度を選べます。月次・週次・四半期などの粒度に対応しています。",
+                on_change=apply_callback,
+                args=(freq_state_key,),
+            )
+            st.caption("選択内容は変更と同時にダッシュボードへ反映されます。")
+
+            button_cols = st.columns(2)
+            with button_cols[0]:
+                if st.button("設定をリセット", key="reset_filter_button"):
+                    reset_filters(default_filters)
+            with button_cols[1]:
+                if st.button("セッション状態を初期化", key="clear_session_button"):
+                    st.session_state.clear()
+                    trigger_rerun()
+
+    return {"expanded": st.session_state[expanded_state_key], "summary": summary_text}
 
 
 def jump_to_section(section_key: str) -> None:
@@ -7407,7 +7474,7 @@ def main() -> None:
         update_state_from_widget(state_key)
         trigger_rerun()
 
-    render_global_filter_bar(
+    filter_panel_state = render_global_filter_bar(
         store_options=store_options,
         store_index=store_index,
         store_state_key=store_state_key,
@@ -7429,6 +7496,11 @@ def main() -> None:
         apply_callback=_apply_filter_form,
         default_filters=default_filters,
     )
+
+    filters_expanded = filter_panel_state["expanded"]
+    filter_summary_text = filter_panel_state["summary"]
+    if not filters_expanded and filter_summary_text:
+        st.caption(f"現在のフィルタ: {filter_summary_text}")
 
     current_period = st.session_state[period_state_key]
     selected_granularity_label = st.session_state[freq_state_key]
