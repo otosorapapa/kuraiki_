@@ -1024,10 +1024,36 @@ def inject_mckinsey_style(*, dark_mode: bool = False) -> None:
             background: rgba(11,31,59,0.02);
             box-shadow: var(--shadow-sm);
         }}
+        .onboarding-wizard--sidebar {{
+            margin-bottom: 0;
+        }}
         .onboarding-wizard__title {{
             font-size: 0.95rem;
             font-weight: 700;
             margin-bottom: var(--spacing-sm);
+        }}
+        .onboarding-wizard--sidebar .onboarding-wizard__title {{
+            margin-bottom: var(--spacing-xs);
+        }}
+        section[data-testid="stSidebar"] button[data-testid="stBaseButton-primary"] {{
+            width: 100%;
+            justify-content: flex-start;
+            gap: 0.6rem;
+            background: rgba(11,31,59,0.05);
+            border: 1px solid rgba(11,31,59,0.12);
+            color: var(--text-color);
+            box-shadow: none;
+            padding: 0.65rem 0.85rem;
+            border-radius: var(--radius-card);
+            font-weight: 600;
+        }}
+        section[data-testid="stSidebar"] button[data-testid="stBaseButton-primary"] p {{
+            margin: 0;
+            font-weight: 600;
+        }}
+        section[data-testid="stSidebar"] button[data-testid="stBaseButton-primary"]:hover {{
+            background: rgba(11,31,59,0.08);
+            border-color: rgba(11,31,59,0.2);
         }}
         .onboarding-step {{
             border-radius: var(--radius-card);
@@ -1257,8 +1283,17 @@ def render_onboarding_wizard(
     filters_ready: bool,
     analysis_ready: bool,
     sample_checked: bool,
+    visible: bool = True,
 ) -> None:
     """サイドバー上部にオンボーディングウィザードを描画する。"""
+
+    desired_sample_state = bool(sample_checked)
+    if st.session_state.get("use_sample_data") != desired_sample_state:
+        set_state_and_widget("use_sample_data", desired_sample_state)
+
+    if not visible:
+        container.empty()
+        return
 
     container.empty()
     wizard_box = container.container()
@@ -1281,8 +1316,8 @@ def render_onboarding_wizard(
 
     wizard_box.markdown(
         f"""
-        <div class="onboarding-wizard">
-            <div class="onboarding-wizard__title">はじめに</div>
+        <div class="onboarding-wizard onboarding-wizard--sidebar">
+            <div class="onboarding-wizard__title">セットアップ手順</div>
             <div class="{step1_class}">
                 <div class="onboarding-step__header">
                     <span class="onboarding-step__badge">{step1_badge}</span>
@@ -1314,10 +1349,6 @@ def render_onboarding_wizard(
         """,
         unsafe_allow_html=True,
     )
-
-    desired_sample_state = bool(sample_checked)
-    if st.session_state.get("use_sample_data") != desired_sample_state:
-        set_state_and_widget("use_sample_data", desired_sample_state)
 
     sample_widget_key = ensure_widget_mirror("use_sample_data")
 
@@ -6083,6 +6114,27 @@ def main() -> None:
     if st.session_state.pop("pending_enable_sample_data", False):
         set_state_and_widget("use_sample_data", True)
 
+    if "sidebar_onboarding_visible" not in st.session_state:
+        st.session_state["sidebar_onboarding_visible"] = True
+
+    show_onboarding = bool(st.session_state.get("sidebar_onboarding_visible", True))
+    toggle_label = ("▼ " if show_onboarding else "▶ ") + "はじめに"
+
+    def _toggle_sidebar_onboarding() -> None:
+        current = bool(st.session_state.get("sidebar_onboarding_visible", True))
+        st.session_state["sidebar_onboarding_visible"] = not current
+
+    st.sidebar.button(
+        toggle_label,
+        key="toggle_sidebar_onboarding",
+        use_container_width=True,
+        type="primary",
+        help="クリックして『はじめに』セクションの表示/非表示を切り替えます。",
+        on_click=_toggle_sidebar_onboarding,
+    )
+
+    show_onboarding = bool(st.session_state.get("sidebar_onboarding_visible", True))
+
     onboarding_container = st.sidebar.container()
 
     if "use_sample_data" not in st.session_state:
@@ -6322,6 +6374,7 @@ def main() -> None:
             filters_ready=False,
             analysis_ready=False,
             sample_checked=use_sample_data,
+            visible=show_onboarding,
         )
         display_state_message(
             "server_error",
@@ -6345,6 +6398,7 @@ def main() -> None:
             filters_ready=False,
             analysis_ready=False,
             sample_checked=use_sample_data,
+            visible=show_onboarding,
         )
 
         def _enable_sample_data() -> None:
@@ -6574,6 +6628,7 @@ def main() -> None:
         filters_ready=filters_ready,
         analysis_ready=analysis_ready,
         sample_checked=use_sample_data,
+        visible=show_onboarding,
     )
 
     if filtered_sales.empty:
