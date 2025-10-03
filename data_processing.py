@@ -4,7 +4,9 @@ from __future__ import annotations
 # TODO: pandasとnumpyを使ってデータ集計を行う
 import io
 import math
+from collections import Counter
 from dataclasses import dataclass, field
+from itertools import combinations
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import numpy as np
@@ -865,6 +867,243 @@ def annotate_customer_segments(
     working["is_new_customer"] = working["customer_segment"] == "新規"
     working["is_reactivated_customer"] = working["customer_segment"] == "休眠"
     return working
+
+
+def _quantile_score(series: pd.Series, ascending: bool = True) -> pd.Series:
+    """Assign 1-5 scores based on quantiles while handling low cardinality."""
+
+    if series is None or series.empty:
+        return pd.Series(dtype="int64")
+
+    working = series.astype(float)
+    if working.isna().all():
+        return pd.Series([3] * len(working), index=working.index, dtype="int64")
+
+    working = working.fillna(working.median())
+    if not ascending:
+        working = -working
+
+    ranks = working.rank(method="first", ascending=True)
+    try:
+        buckets = pd.qcut(ranks, 5, labels=False, duplicates="drop")
+    except ValueError:
+        buckets = pd.cut(ranks, bins=5, labels=False)
+
+    if isinstance(buckets, pd.Series):
+        buckets = buckets.fillna(buckets.median() if buckets.notna().any() else 2)
+    buckets = (np.asarray(buckets, dtype=float) + 1).astype(float)
+
+    max_bucket = buckets.max() if buckets.size else 0
+    if max_bucket < 5 and max_bucket > 0:
+        buckets = np.ceil(buckets * (5.0 / max_bucket))
+
+    scores = buckets.astype(int)
+    return pd.Series(scores, index=series.index).clip(1, 5)
+
+
+def compute_customer_rfm_and_basket(
+    df: pd.DataFrame,
+    *,
+    reference_date: Optional[pd.Timestamp] = None,
+    min_support: float = 0.02,
+    min_confidence: float = 0.3,
+    top_n_rules: int = 20,
+) -> Dict[str, pd.DataFrame]:
+    """Calculate RFM scores and basic association rules for a sales dataset."""
+
+    results: Dict[str, pd.DataFrame] = {
+        "rfm": pd.DataFrame(),
+        "segment_summary": pd.DataFrame(),
+        "association_rules": pd.DataFrame(),
+        "item_support": pd.DataFrame(),
+    }
+
+    if df is None or df.empty:
+        return results
+
+    working = df.copy()
+    if "order_date" not in working.columns:
+        return results
+
+    working["order_date"] = pd.to_datetime(working["order_date"], errors="coerce")
+    working = working.dropna(subset=["order_date"])
+    if working.empty:
+        return results
+
+    if reference_date is None:
+        last_order = working["order_date"].max()
+        reference_date = (last_order + pd.Timedelta(days=1)) if pd.notna(last_order) else pd.Timestamp.today()
+    reference_date = pd.Timestamp(reference_date)
+
+    rfm_ready = {"customer_id", "sales_amount"}.issubset(working.columns)
+    profit_column = next(
+        (col for col in ["net_gross_profit", "gross_profit"] if col in working.columns),
+        None,
+    )
+
+    if rfm_ready:
+        grouped = working.groupby("customer_id")
+        recency = (reference_date - grouped["order_date"].max()).dt.days
+
+        if "order_id" in working.columns and working["order_id"].notna().any():
+            frequency = grouped["order_id"].nunique()
+        elif "order_number" in working.columns and working["order_number"].notna().any():
+            frequency = grouped["order_number"].nunique()
+        else:
+            order_keys = working["order_date"].dt.to_period("D")
+            frequency = order_keys.groupby(working["customer_id"]).nunique()
+
+        monetary = grouped["sales_amount"].sum()
+        profit = grouped[profit_column].sum() if profit_column else monetary.copy()
+        avg_order_value = monetary / frequency.replace(0, np.nan)
+
+        rfm = pd.DataFrame(
+            {
+                "customer_id": recency.index.astype(str),
+                "recency": recency.astype(float),
+                "frequency": frequency.reindex(recency.index).fillna(0).astype(float),
+                "monetary": monetary.reindex(recency.index).fillna(0.0).astype(float),
+                "ltv": profit.reindex(recency.index).fillna(0.0).astype(float),
+                "avg_order_value": avg_order_value.reindex(recency.index).astype(float),
+            }
+        )
+
+        rfm["r_score"] = _quantile_score(rfm["recency"], ascending=False)
+        rfm["f_score"] = _quantile_score(rfm["frequency"], ascending=True)
+        rfm["m_score"] = _quantile_score(rfm["ltv"], ascending=True)
+        rfm["rfm_score"] = rfm[["r_score", "f_score", "m_score"]].sum(axis=1)
+
+        def _assign_segment(row: pd.Series) -> str:
+            if row["r_score"] >= 4 and row["f_score"] >= 4 and row["m_score"] >= 4:
+                return "ロイヤル顧客"
+            if row["r_score"] >= 4 and row["f_score"] <= 2:
+                return "新規・最近獲得"
+            if row["r_score"] >= 3 and row["m_score"] >= 3:
+                return "優良顧客"
+            if row["r_score"] <= 2 and row["f_score"] >= 3:
+                return "離反リスク"
+            return "育成対象"
+
+        rfm["segment"] = rfm.apply(_assign_segment, axis=1)
+        rfm.sort_values("rfm_score", ascending=False, inplace=True)
+        results["rfm"] = rfm.reset_index(drop=True)
+
+        segment_summary = (
+            rfm.groupby("segment")
+            .agg(
+                顧客数=("customer_id", "nunique"),
+                平均Recency日=("recency", "mean"),
+                平均Frequency回=("frequency", "mean"),
+                平均購入単価円=("avg_order_value", "mean"),
+                平均LTV円=("ltv", "mean"),
+                LTV合計円=("ltv", "sum"),
+                売上合計円=("monetary", "sum"),
+            )
+            .reset_index()
+        )
+        total_ltv = segment_summary["LTV合計円"].sum()
+        if total_ltv:
+            segment_summary["LTV構成比"] = segment_summary["LTV合計円"] / total_ltv
+        else:
+            segment_summary["LTV構成比"] = np.nan
+        results["segment_summary"] = segment_summary.sort_values("LTV合計円", ascending=False)
+
+    transaction_col = None
+    for candidate in ["order_id", "transaction_id", "order_number"]:
+        if candidate in working.columns and working[candidate].notna().any():
+            transaction_col = candidate
+            break
+
+    if transaction_col is None:
+        working["transaction_id"] = (
+            working["customer_id"].astype(str)
+            + "_"
+            + working["order_date"].dt.strftime("%Y%m%d")
+        )
+        transaction_col = "transaction_id"
+
+    if "product_name" in working.columns:
+        items_series = working["product_name"].fillna(working.get("product_code", "未定義商品"))
+    elif "product_code" in working.columns:
+        items_series = working["product_code"].astype(str)
+    else:
+        items_series = pd.Series(dtype=str)
+
+    basket_df = working.assign(item=items_series.astype(str)).dropna(subset=[transaction_col, "item"])
+    basket_df["item"] = basket_df["item"].str.strip()
+    basket_df = basket_df[basket_df["item"] != ""]
+
+    transactions = (
+        basket_df.groupby(transaction_col)["item"].apply(lambda values: sorted(set(values)))
+    )
+    if transactions.empty:
+        return results
+
+    transaction_sets = [items for items in transactions if items]
+    total_transactions = len(transaction_sets)
+    if total_transactions == 0:
+        return results
+
+    item_counter: Counter = Counter()
+    pair_counter: Counter = Counter()
+
+    for items in transaction_sets:
+        unique_items = list(dict.fromkeys(items))
+        for item in unique_items:
+            item_counter[item] += 1
+        for combo in combinations(sorted(unique_items), 2):
+            pair_counter[combo] += 1
+
+    item_support_records = [
+        {
+            "item": item,
+            "transactions": count,
+            "support": count / total_transactions,
+        }
+        for item, count in item_counter.items()
+    ]
+    results["item_support"] = (
+        pd.DataFrame(item_support_records)
+        .sort_values("support", ascending=False)
+        .reset_index(drop=True)
+    )
+
+    rules: List[Dict[str, Any]] = []
+    for (item_a, item_b), pair_count in pair_counter.items():
+        support = pair_count / total_transactions
+        support_a = item_counter[item_a] / total_transactions if item_counter[item_a] else 0
+        support_b = item_counter[item_b] / total_transactions if item_counter[item_b] else 0
+        leverage = support - (support_a * support_b)
+
+        for antecedent, consequent, consequent_support in [
+            (item_a, item_b, support_b),
+            (item_b, item_a, support_a),
+        ]:
+            confidence = pair_count / item_counter[antecedent] if item_counter[antecedent] else 0
+            lift = confidence / consequent_support if consequent_support else np.nan
+            if support >= min_support and confidence >= min_confidence:
+                rules.append(
+                    {
+                        "antecedent": antecedent,
+                        "consequent": consequent,
+                        "support": support,
+                        "confidence": confidence,
+                        "lift": lift,
+                        "leverage": leverage,
+                        "pair_count": pair_count,
+                    }
+                )
+
+    if rules:
+        rules_df = (
+            pd.DataFrame(rules)
+            .sort_values(["confidence", "lift"], ascending=[False, False])
+            .head(top_n_rules)
+            .reset_index(drop=True)
+        )
+        results["association_rules"] = rules_df
+
+    return results
 
 
 def _to_valid_float(value: Optional[float]) -> float:

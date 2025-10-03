@@ -47,6 +47,7 @@ from data_processing import (
     compute_channel_share,
     compute_category_share,
     compute_kpi_breakdown,
+    compute_customer_rfm_and_basket,
 )
 
 st.set_page_config(
@@ -1279,6 +1280,40 @@ def ensure_sample_data_cached() -> None:
         sales, _, _ = load_sample_data()
     st.session_state["sample_data_warmed"] = True
     st.session_state["sample_data_rows"] = int(len(sales))
+
+
+@st.cache_data(show_spinner=False, ttl=60 * 30)
+def compute_customer_value_insights_cached(df: pd.DataFrame) -> Dict[str, pd.DataFrame]:
+    """キャッシュ付きでRFM・バスケット分析を実行する。"""
+
+    if df is None or df.empty:
+        return {
+            "rfm": pd.DataFrame(),
+            "segment_summary": pd.DataFrame(),
+            "association_rules": pd.DataFrame(),
+            "item_support": pd.DataFrame(),
+        }
+
+    required_cols = [
+        "order_date",
+        "customer_id",
+        "sales_amount",
+        "product_name",
+        "product_code",
+        "order_id",
+        "order_number",
+        "transaction_id",
+        "net_gross_profit",
+        "gross_profit",
+    ]
+    available_cols = [col for col in required_cols if col in df.columns]
+    working = df[available_cols].copy()
+    working["sales_amount"] = pd.to_numeric(working["sales_amount"], errors="coerce")
+    if "net_gross_profit" in working.columns:
+        working["net_gross_profit"] = pd.to_numeric(working["net_gross_profit"], errors="coerce")
+    if "gross_profit" in working.columns:
+        working["gross_profit"] = pd.to_numeric(working["gross_profit"], errors="coerce")
+    return compute_customer_rfm_and_basket(working)
 
 
 def _build_sample_filename(prefix: str, key: str) -> str:
@@ -4268,6 +4303,7 @@ def render_sales_tab(
     channel_share_df: pd.DataFrame,
     category_share_df: pd.DataFrame,
     selected_granularity_label: str,
+    customer_value_insights: Optional[Dict[str, pd.DataFrame]] = None,
 ) -> None:
     """売上タブの可視化と明細を描画する。"""
 
@@ -4509,6 +4545,79 @@ def render_sales_tab(
             chart_cols[1].info("カテゴリ別の集計データがありません。")
         st.markdown("</div>", unsafe_allow_html=True)
 
+    segment_summary = (
+        (customer_value_insights or {}).get("segment_summary")
+        if customer_value_insights is not None
+        else None
+    )
+    if segment_summary is not None and not segment_summary.empty:
+        st.markdown("<div class='chart-section'>", unsafe_allow_html=True)
+        st.markdown(
+            "<div class='chart-section__header'><div class='chart-section__title'>セグメント別LTV</div></div>",
+            unsafe_allow_html=True,
+        )
+        ltv_chart_source = segment_summary.rename(columns={"segment": "セグメント"}).copy()
+        ltv_chart_source.sort_values("平均LTV円", ascending=False, inplace=True)
+        chart = (
+            alt.Chart(ltv_chart_source)
+            .mark_bar(color=ACCENT_COLOR, cornerRadiusTopLeft=4, cornerRadiusTopRight=4)
+            .encode(
+                y=alt.Y("セグメント:N", sort="-x", title=None),
+                x=alt.X("平均LTV円:Q", title="平均LTV (円)", axis=alt.Axis(format=",.0f")),
+                tooltip=[
+                    alt.Tooltip("セグメント:N", title="セグメント"),
+                    alt.Tooltip("顧客数:Q", title="顧客数", format=",.0f"),
+                    alt.Tooltip("平均LTV円:Q", title="平均LTV", format=",.0f"),
+                    alt.Tooltip("LTV構成比:Q", title="LTV構成比", format=".1%"),
+                ],
+            )
+            .properties(height=280)
+        )
+        st.altair_chart(apply_altair_theme(chart), use_container_width=True)
+
+        top_segment = ltv_chart_source.iloc[0]
+        insight_cols = st.columns(3)
+        insight_cols[0].metric(
+            "トップセグメント",
+            top_segment["セグメント"],
+            delta=f"平均LTV {top_segment['平均LTV円']:,.0f} 円",
+        )
+        median_ltv = float(ltv_chart_source["平均LTV円"].median())
+        insight_cols[1].metric("中央値LTV", f"{median_ltv:,.0f} 円")
+        total_ltv = float(ltv_chart_source["LTV合計円"].sum())
+        insight_cols[2].metric("LTV合計", f"{total_ltv:,.0f} 円")
+
+        display_df = ltv_chart_source[
+            [
+                "セグメント",
+                "顧客数",
+                "平均Recency日",
+                "平均Frequency回",
+                "平均購入単価円",
+                "平均LTV円",
+                "LTV合計円",
+                "LTV構成比",
+            ]
+        ].copy()
+        for currency_col in ["平均購入単価円", "平均LTV円", "LTV合計円"]:
+            display_df[currency_col] = display_df[currency_col].map(
+                lambda v: f"{v:,.0f}" if pd.notna(v) else "-"
+            )
+        display_df["LTV構成比"] = display_df["LTV構成比"].map(
+            lambda v: f"{v:.1%}" if pd.notna(v) else "-"
+        )
+        display_df["平均Recency日"] = display_df["平均Recency日"].map(
+            lambda v: f"{v:,.1f}" if pd.notna(v) else "-"
+        )
+        display_df["平均Frequency回"] = display_df["平均Frequency回"].map(
+            lambda v: f"{v:,.1f}" if pd.notna(v) else "-"
+        )
+        st.dataframe(display_df, hide_index=True, use_container_width=True)
+        st.caption("平均LTVはフィルターで選択した顧客群に基づく推計値です。")
+        st.markdown("</div>", unsafe_allow_html=True)
+    elif customer_value_insights is not None:
+        st.info("セグメント別LTVを算出するには顧客ID付きの売上データが必要です。")
+
     with st.expander("売上明細（商品別・上位50件）", expanded=False):
         if merged_df is None or merged_df.empty:
             st.info("売上データがありません。")
@@ -4574,6 +4683,7 @@ def render_gross_tab(
     merged_df: pd.DataFrame,
     period_summary: pd.DataFrame,
     selected_granularity_label: str,
+    customer_value_insights: Optional[Dict[str, pd.DataFrame]] = None,
 ) -> None:
     """粗利タブのグラフと明細を描画する。"""
 
@@ -4782,6 +4892,49 @@ def render_gross_tab(
         else:
             chart_cols[1].info("商品別の粗利データがありません。")
         st.markdown("</div>", unsafe_allow_html=True)
+
+    segment_summary = (
+        (customer_value_insights or {}).get("segment_summary")
+        if customer_value_insights is not None
+        else None
+    )
+    if segment_summary is not None and not segment_summary.empty:
+        st.markdown("<div class='chart-section'>", unsafe_allow_html=True)
+        st.markdown(
+            "<div class='chart-section__header'><div class='chart-section__title'>セグメント別粗利貢献</div></div>",
+            unsafe_allow_html=True,
+        )
+        contribution_source = segment_summary.rename(columns={"segment": "セグメント"}).copy()
+        contribution_source.sort_values("LTV合計円", ascending=False, inplace=True)
+        contribution_source["粗利構成比"] = contribution_source["LTV構成比"]
+        contribution_chart = (
+            alt.Chart(contribution_source)
+            .mark_bar(color=GROSS_SERIES_COLOR, cornerRadiusTopLeft=4, cornerRadiusTopRight=4)
+            .encode(
+                y=alt.Y("セグメント:N", sort="-x", title=None),
+                x=alt.X("LTV合計円:Q", title="推定粗利貢献額 (円)", axis=alt.Axis(format=",.0f")),
+                tooltip=[
+                    alt.Tooltip("セグメント:N", title="セグメント"),
+                    alt.Tooltip("顧客数:Q", title="顧客数", format=",.0f"),
+                    alt.Tooltip("LTV合計円:Q", title="粗利貢献額", format=",.0f"),
+                    alt.Tooltip("粗利構成比:Q", title="構成比", format=".1%"),
+                ],
+            )
+            .properties(height=260)
+        )
+        st.altair_chart(apply_altair_theme(contribution_chart), use_container_width=True)
+
+        top_segment = contribution_source.iloc[0]
+        info_cols = st.columns(2)
+        info_cols[0].metric(
+            "最大貢献セグメント",
+            top_segment["セグメント"],
+            delta=f"粗利 {top_segment['LTV合計円']:,.0f} 円",
+        )
+        info_cols[1].metric("粗利構成比", f"{top_segment['粗利構成比']:.1%}")
+        st.markdown("</div>", unsafe_allow_html=True)
+    elif customer_value_insights is not None:
+        st.info("粗利貢献の可視化には顧客IDと売上金額が必要です。")
 
     with st.expander("原価率・粗利テーブル", expanded=False):
         if merged_df is None or merged_df.empty:
@@ -5052,6 +5205,7 @@ def render_inventory_tab(
     merged_df: pd.DataFrame,
     kpi_period_summary: pd.DataFrame,
     selected_kpi_row: pd.Series,
+    customer_value_insights: Optional[Dict[str, pd.DataFrame]] = None,
 ) -> None:
     """在庫タブの主要指標と推計表を表示する。"""
 
@@ -5228,6 +5382,42 @@ def render_inventory_tab(
         )
         render_inventory_heatmap(merged_df, selected_kpi_row)
         st.markdown("</div>", unsafe_allow_html=True)
+
+    association_rules = (
+        (customer_value_insights or {}).get("association_rules")
+        if customer_value_insights is not None
+        else None
+    )
+    if association_rules is not None and not association_rules.empty:
+        st.markdown("<div class='chart-section'>", unsafe_allow_html=True)
+        st.markdown(
+            "<div class='chart-section__header'><div class='chart-section__title'>クロスセル候補</div></div>",
+            unsafe_allow_html=True,
+        )
+        rules_display = association_rules.head(15).copy()
+        rules_display.rename(
+            columns={
+                "antecedent": "推奨元商品",
+                "consequent": "クロスセル候補",
+                "support": "サポート率",
+                "confidence": "信頼度",
+                "lift": "リフト値",
+                "pair_count": "共起回数",
+            },
+            inplace=True,
+        )
+        rules_display["サポート率"] = rules_display["サポート率"].map(lambda v: f"{v:.1%}")
+        rules_display["信頼度"] = rules_display["信頼度"].map(lambda v: f"{v:.1%}")
+        rules_display["リフト値"] = rules_display["リフト値"].map(lambda v: f"{v:.2f}" if pd.notna(v) else "-")
+        st.dataframe(rules_display, hide_index=True, use_container_width=True)
+
+        top_rule = rules_display.iloc[0]
+        st.caption(
+            f"{top_rule['推奨元商品']}を購入した顧客の{top_rule['信頼度']}が{top_rule['クロスセル候補']}も同時購入しています。"
+        )
+        st.markdown("</div>", unsafe_allow_html=True)
+    elif customer_value_insights is not None:
+        st.info("クロスセル候補を表示するには顧客ID・商品名の両方を含むデータが必要です。")
 
     with st.expander("在庫推計テーブル", expanded=False):
         if merged_df is None or merged_df.empty:
@@ -7154,6 +7344,16 @@ def main() -> None:
         )
     merged_df = merge_sales_and_costs(filtered_sales, cost_df)
     segmented_sales_df = annotate_customer_segments(merged_df)
+    customer_value_insights = (
+        compute_customer_value_insights_cached(segmented_sales_df)
+        if not segmented_sales_df.empty
+        else {
+            "rfm": pd.DataFrame(),
+            "segment_summary": pd.DataFrame(),
+            "association_rules": pd.DataFrame(),
+            "item_support": pd.DataFrame(),
+        }
+    )
     monthly_summary = monthly_sales_summary(merged_df)
     period_summary = summarize_sales_by_period(merged_df, selected_freq)
 
@@ -7304,11 +7504,22 @@ def main() -> None:
                     channel_share_df,
                     category_share_df,
                     selected_granularity_label,
+                    customer_value_insights,
                 )
             elif selected_primary_tab == "粗利":
-                render_gross_tab(merged_df, period_summary, selected_granularity_label)
+                render_gross_tab(
+                    merged_df,
+                    period_summary,
+                    selected_granularity_label,
+                    customer_value_insights,
+                )
             elif selected_primary_tab == "在庫":
-                render_inventory_tab(merged_df, kpi_period_summary, selected_kpi_row)
+                render_inventory_tab(
+                    merged_df,
+                    kpi_period_summary,
+                    selected_kpi_row,
+                    customer_value_insights,
+                )
             elif selected_primary_tab == "資金":
                 render_cash_tab(default_cash_plan, default_cash_forecast, starting_cash)
             elif selected_primary_tab == "KPI":
