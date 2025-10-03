@@ -35,6 +35,7 @@ from data_processing import (
     generate_sample_cost_data,
     generate_sample_sales_data,
     generate_sample_subscription_data,
+    generate_inventory_campaign_recommendations,
     detect_duplicate_rows,
     validate_channel_fees,
     ValidationReport,
@@ -6109,6 +6110,13 @@ def render_scenario_analysis_section(
         else normalize_scenario_input(merged_df)
     )
 
+    recommendations_df = pd.DataFrame()
+    if isinstance(base_df, pd.DataFrame) and not base_df.empty:
+        try:
+            recommendations_df = generate_inventory_campaign_recommendations(base_df)
+        except Exception:  # pragma: no cover - 予測計算失敗時は無視
+            recommendations_df = pd.DataFrame()
+
     monthly_sales = None
     if isinstance(base_df, pd.DataFrame) and not base_df.empty and "sales_amount" in base_df.columns:
         if "order_month" not in base_df.columns:
@@ -6324,6 +6332,56 @@ def render_scenario_analysis_section(
                         }
                     )
                 )
+
+                st.markdown("### レコメンド: シナリオ別推奨アクション")
+                if recommendations_df.empty:
+                    st.info("レコメンドを計算するための十分なデータがありません。売上数量や商品名を含むデータをご用意ください。")
+                else:
+                    top_product = recommendations_df.iloc[0]
+                    projected_value = float(top_product.get("projected_demand", 0.0) or 0.0)
+                    reorder_value = int(float(top_product.get("recommended_reorder_qty", 0) or 0))
+                    st.markdown(
+                        """
+                        <div class="surface-card" style="padding:1rem;margin-bottom:0.75rem;display:flex;flex-direction:column;gap:0.35rem;">
+                            <div style="font-weight:700;font-size:1rem;">重点商品候補: {name}</div>
+                            <div style="font-size:0.9rem;color:var(--muted-text-color);">
+                                次期({period})需要予測: {demand:,.1f} 個 / 推奨仕入: {order_qty:,d} 個
+                            </div>
+                            <div style="font-size:0.85rem;">推奨キャンペーン時期: {campaign}</div>
+                        </div>
+                        """.format(
+                            name=html.escape(str(top_product.get("product_name", "-"))),
+                            period=html.escape(str(top_product.get("next_period", "-"))),
+                            demand=projected_value,
+                            order_qty=reorder_value,
+                            campaign=html.escape(str(top_product.get("campaign_period", "-"))),
+                        ),
+                        unsafe_allow_html=True,
+                    )
+
+                    scenario_actions: List[Dict[str, Any]] = []
+                    for idx, scenario in enumerate(scenarios):
+                        focus_row = recommendations_df.iloc[min(idx, len(recommendations_df) - 1)]
+                        growth_rate = float(scenario.get("growth", 0.0) or 0.0)
+                        growth_factor = max(1.0 + (growth_rate / 100.0), 0.0)
+                        base_qty = float(focus_row.get("recommended_reorder_qty", 0.0) or 0.0)
+                        adjusted_qty = int(np.ceil(base_qty * growth_factor)) if base_qty else 0
+                        scenario_actions.append(
+                            {
+                                "シナリオ": scenario.get("name", f"シナリオ {idx + 1}"),
+                                "重点商品": focus_row.get("product_name", "-"),
+                                "ABCクラス": focus_row.get("abc_class", "-"),
+                                "推奨仕入量": adjusted_qty,
+                                "推奨キャンペーン時期": focus_row.get("campaign_period", "-"),
+                                "コメント": f"{focus_row.get('notes', '')} / 成長率{growth_rate:.1f}%想定",
+                            }
+                        )
+
+                    actions_df = pd.DataFrame(scenario_actions)
+                    st.dataframe(
+                        actions_df.style.format({"推奨仕入量": "{:,.0f}"}),
+                        use_container_width=True,
+                    )
 
                 sales_chart = alt.Chart(combined_df).mark_line().encode(
                     x=alt.X("period:T", title="期間"),
