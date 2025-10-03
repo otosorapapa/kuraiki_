@@ -638,6 +638,7 @@ PHASE2_SESSION_DEFAULTS: Dict[str, Any] = {
     "phase2_benchmark": None,
     "phase2_report_summary": "",
     "ui_theme_mode": "dark",
+    "ui_font_scale": 1.0,
 }
 
 
@@ -661,6 +662,8 @@ TYPOGRAPHY_TOKENS: Dict[str, Dict[str, Union[str, int, float]]] = {
     "numeric": {"size": "1.1rem", "weight": 600, "line_height": 1.35},
     "caption": {"size": "0.78rem", "weight": 400, "line_height": 1.45},
 }
+
+FONT_SCALE_OPTIONS: List[float] = [0.9, 1.0, 1.1, 1.2, 1.3]
 
 SPACING_UNIT = 8
 SPACING_SCALE: Dict[str, str] = {
@@ -698,6 +701,28 @@ def _rgba_from_hex(hex_color: str, alpha: float) -> str:
     r, g, b = _hex_to_rgb(hex_color)
     alpha_str = f"{alpha:.3f}".rstrip("0").rstrip(".")
     return f"rgba({r},{g},{b},{alpha_str})"
+
+
+def _format_scaled_value(value: float) -> str:
+    """スケール適用後の数値をCSSで使いやすい文字列に整形する。"""
+
+    return f"{value:.4f}".rstrip("0").rstrip(".")
+
+
+def _scale_css_dimension(value: Union[str, float, int], scale: float) -> str:
+    """rem/px値を含むCSS寸法をスケールする。"""
+
+    if isinstance(value, (int, float)):
+        return _format_scaled_value(value * scale)
+
+    if isinstance(value, str):
+        if value.endswith("rem"):
+            base = float(value[:-3])
+            return f"{_format_scaled_value(base * scale)}rem"
+        if value.endswith("px"):
+            base = float(value[:-2])
+            return f"{_format_scaled_value(base * scale)}px"
+    return str(value)
 
 
 SUCCESS_RGB = _hex_to_rgb(SUCCESS_COLOR)
@@ -800,7 +825,7 @@ def apply_altair_theme(chart: alt.Chart) -> alt.Chart:
     )
 
 
-def inject_mckinsey_style(*, dark_mode: bool = False) -> None:
+def inject_mckinsey_style(*, dark_mode: bool = False, font_scale: float = 1.0) -> None:
     """デザイン・トークンとマッキンゼー風スタイルをアプリに適用する。"""
 
     surface_color = DARK_THEME_TOKENS["surface"] if dark_mode else SURFACE_COLOR
@@ -808,6 +833,16 @@ def inject_mckinsey_style(*, dark_mode: bool = False) -> None:
     text_color = DARK_THEME_TOKENS["text"] if dark_mode else TEXT_COLOR
     caption_color = DARK_THEME_TOKENS["caption"] if dark_mode else CAPTION_TEXT_COLOR
     muted_text_color = DARK_THEME_TOKENS["muted"] if dark_mode else MUTED_TEXT_COLOR
+
+    safe_font_scale = max(font_scale, 0.5)
+    h1_size = _scale_css_dimension(TYPOGRAPHY_TOKENS["h1"]["size"], safe_font_scale)
+    h1_line_height = _scale_css_dimension(TYPOGRAPHY_TOKENS["h1"]["line_height"], safe_font_scale)
+    h2_size = _scale_css_dimension(TYPOGRAPHY_TOKENS["h2"]["size"], safe_font_scale)
+    h2_line_height = _scale_css_dimension(TYPOGRAPHY_TOKENS["h2"]["line_height"], safe_font_scale)
+    body_size = _scale_css_dimension(TYPOGRAPHY_TOKENS["body"]["size"], safe_font_scale)
+    body_line_height = _scale_css_dimension(TYPOGRAPHY_TOKENS["body"]["line_height"], safe_font_scale)
+    caption_size = _scale_css_dimension(TYPOGRAPHY_TOKENS["caption"]["size"], safe_font_scale)
+    caption_line_height = _scale_css_dimension(TYPOGRAPHY_TOKENS["caption"]["line_height"], safe_font_scale)
 
     st.markdown(
         f"""
@@ -833,14 +868,14 @@ def inject_mckinsey_style(*, dark_mode: bool = False) -> None:
             --font-family: {MCKINSEY_FONT_STACK};
             --alt-font-family: {ALT_FONT_FAMILY};
             --numeric-font-family: {NUMERIC_FONT_STACK};
-            --h1-size: {TYPOGRAPHY_TOKENS['h1']['size']};
-            --h1-line-height: {TYPOGRAPHY_TOKENS['h1']['line_height']};
-            --h2-size: {TYPOGRAPHY_TOKENS['h2']['size']};
-            --h2-line-height: {TYPOGRAPHY_TOKENS['h2']['line_height']};
-            --body-size: {TYPOGRAPHY_TOKENS['body']['size']};
-            --body-line-height: {TYPOGRAPHY_TOKENS['body']['line_height']};
-            --caption-size: {TYPOGRAPHY_TOKENS['caption']['size']};
-            --caption-line-height: {TYPOGRAPHY_TOKENS['caption']['line_height']};
+            --h1-size: {h1_size};
+            --h1-line-height: {h1_line_height};
+            --h2-size: {h2_size};
+            --h2-line-height: {h2_line_height};
+            --body-size: {body_size};
+            --body-line-height: {body_line_height};
+            --caption-size: {caption_size};
+            --caption-line-height: {caption_line_height};
             --spacing-xs: {SPACING_SCALE['xs']};
             --spacing-sm: {SPACING_SCALE['sm']};
             --spacing-md: {SPACING_SCALE['md']};
@@ -7877,7 +7912,17 @@ def main() -> None:
 
     st.session_state[expander_state_key] = details_expander.expanded
 
-    inject_mckinsey_style(dark_mode=dark_mode)
+    default_font_scale = float(st.session_state.get("ui_font_scale", 1.0))
+    font_scale = st.sidebar.select_slider(
+        "文字サイズスケール",
+        options=FONT_SCALE_OPTIONS,
+        value=default_font_scale if default_font_scale in FONT_SCALE_OPTIONS else 1.0,
+        format_func=lambda v: f"{int(round(v * 100))}%",
+        help="視認性向上のため本文や見出しの文字サイズを拡大・縮小できます。",
+    )
+    st.session_state["ui_font_scale"] = font_scale
+
+    inject_mckinsey_style(dark_mode=dark_mode, font_scale=font_scale)
 
     render_intro_section()
     render_onboarding_tour_overlay()
