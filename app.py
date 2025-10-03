@@ -24,7 +24,9 @@ import streamlit as st
 from streamlit_plotly_events import plotly_events
 
 from data_processing import (
+    ALERT_THRESHOLD_DEFINITIONS,
     DEFAULT_FIXED_COST,
+    AlertMessage,
     annotate_customer_segments,
     build_alerts,
     calculate_kpis,
@@ -47,6 +49,7 @@ from data_processing import (
     compute_channel_share,
     compute_category_share,
     compute_kpi_breakdown,
+    get_default_alert_thresholds,
 )
 
 st.set_page_config(
@@ -191,6 +194,16 @@ FILTER_STATE_KEYS = {
 }
 
 
+ALERT_THRESHOLD_SESSION_KEY = "alert_threshold_settings"
+ALERT_THRESHOLD_SAVED_AT_KEY = "alert_thresholds_saved_at"
+ALERT_SEVERITY_LABELS: Dict[str, str] = {
+    "critical": "緊急",
+    "warning": "注意",
+    "info": "参考",
+    "success": "良好",
+}
+
+
 def widget_key_for(state_key: str) -> str:
     """アプリ状態に対応するウィジェットkeyを生成する。"""
 
@@ -232,6 +245,96 @@ def update_state_from_widget(state_key: str) -> None:
     widget_key = widget_key_for(state_key)
     if widget_key in st.session_state:
         st.session_state[state_key] = _clone_state_value(st.session_state[widget_key])
+
+
+def get_active_alert_thresholds() -> Dict[str, float]:
+    """Return alert thresholds stored in the session, falling back to defaults."""
+
+    thresholds = get_default_alert_thresholds()
+    saved_values = st.session_state.get(ALERT_THRESHOLD_SESSION_KEY)
+    if isinstance(saved_values, dict):
+        for key, value in saved_values.items():
+            if key in thresholds and value is not None and not pd.isna(value):
+                try:
+                    thresholds[key] = float(value)
+                except (TypeError, ValueError):
+                    continue
+    return thresholds
+
+
+def render_alert_settings_panel() -> None:
+    """Allow users to customize alert thresholds from the sidebar."""
+
+    definitions = ALERT_THRESHOLD_DEFINITIONS
+    active_thresholds = get_active_alert_thresholds()
+    saved_at = st.session_state.get(ALERT_THRESHOLD_SAVED_AT_KEY)
+
+    submitted = False
+    reset = False
+    updated_values: Dict[str, float] = {}
+
+    with st.sidebar.expander("アラート閾値設定", expanded=False):
+        st.caption(
+            "経営指標の閾値をカスタマイズすると、組織に合わせた警告判定を行えます。"
+        )
+        with st.form("alert_threshold_form"):
+            for key, config in definitions.items():
+                current_value = active_thresholds.get(key, config.default)
+                label_suffix = "(%)" if config.display_as_percentage else "(円)"
+                label = f"{config.label} {label_suffix}".strip()
+                help_text = config.description
+
+                if config.display_as_percentage:
+                    min_value = float((config.min_value or 0.0) * 100)
+                    max_value = (
+                        float(config.max_value * 100)
+                        if config.max_value is not None
+                        else 100.0
+                    )
+                    step = float((config.step or 0.01) * 100)
+                    percent_value = float(current_value * 100)
+                    input_value = st.number_input(
+                        label,
+                        min_value=min_value,
+                        max_value=max_value,
+                        value=percent_value,
+                        step=step,
+                        key=f"threshold_input_{key}",
+                        help=help_text,
+                    )
+                    updated_values[key] = input_value / 100
+                else:
+                    min_value = int(config.min_value) if config.min_value is not None else None
+                    max_value = int(config.max_value) if config.max_value is not None else None
+                    step = int(config.step) if config.step is not None else 50_000
+                    kwargs: Dict[str, Any] = {
+                        "label": label,
+                        "value": int(current_value),
+                        "step": step,
+                        "key": f"threshold_input_{key}",
+                        "help": help_text,
+                        "format": "%d",
+                    }
+                    if min_value is not None:
+                        kwargs["min_value"] = min_value
+                    if max_value is not None:
+                        kwargs["max_value"] = max_value
+                    updated_values[key] = st.number_input(**kwargs)
+
+            submitted = st.form_submit_button("保存して適用", type="primary")
+            reset = st.form_submit_button("デフォルトに戻す")
+
+        if saved_at:
+            st.caption(f"最終保存: {saved_at}")
+
+    if submitted:
+        st.session_state[ALERT_THRESHOLD_SESSION_KEY] = updated_values
+        st.session_state[ALERT_THRESHOLD_SAVED_AT_KEY] = datetime.now().strftime("%Y-%m-%d %H:%M")
+        trigger_rerun()
+    elif reset:
+        st.session_state[ALERT_THRESHOLD_SESSION_KEY] = get_default_alert_thresholds()
+        st.session_state[ALERT_THRESHOLD_SAVED_AT_KEY] = datetime.now().strftime("%Y-%m-%d %H:%M")
+        trigger_rerun()
 
 
 STATE_MESSAGES: Dict[str, Dict[str, Any]] = {
@@ -943,23 +1046,82 @@ def inject_mckinsey_style(*, dark_mode: bool = False) -> None:
         .kpi-strip__delta--down {{
             color: var(--error-color);
         }}
-        .alert-banner {{
-            border-radius: var(--radius-card);
-            padding: 1rem 1.25rem;
+        .alert-card-grid {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: var(--spacing-sm);
             margin-bottom: var(--spacing-md);
-            border: 1px solid transparent;
-            background: var(--surface-color);
-            color: var(--text-color);
         }}
-        .alert-banner--warning {{
+        .alert-card {{
+            border-radius: var(--radius-card);
+            padding: 1.25rem 1.4rem;
+            border: 1px solid rgba(11,31,59,0.08);
+            background: var(--surface-color);
+            box-shadow: var(--shadow-sm);
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+        }}
+        .alert-card--warning {{
             background: var(--warning-surface);
             border-color: rgba(var(--warning-rgb), 0.35);
             color: var(--warning-color);
         }}
-        .alert-banner--ok {{
+        .alert-card--critical {{
+            background: var(--error-surface);
+            border-color: rgba(var(--error-rgb), 0.35);
+            color: var(--error-color);
+        }}
+        .alert-card--info {{
+            background: rgba(37,99,235,0.08);
+            border-color: rgba(37,99,235,0.24);
+            color: var(--text-color);
+        }}
+        .alert-card--success {{
             background: var(--success-surface);
             border-color: rgba(var(--success-rgb), 0.35);
             color: var(--success-color);
+        }}
+        .alert-card__header {{
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+        }}
+        .alert-card__icon {{
+            font-size: 1.6rem;
+            flex-shrink: 0;
+        }}
+        .alert-card__title {{
+            font-size: 1.0rem;
+            font-weight: 700;
+            flex: 1;
+        }}
+        .alert-card__badge {{
+            font-size: 0.75rem;
+            font-weight: 700;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            padding: 0.25rem 0.65rem;
+            border-radius: 999px;
+            background: rgba(255,255,255,0.25);
+            color: currentColor;
+        }}
+        .alert-card__body {{
+            font-size: 0.92rem;
+            line-height: 1.55;
+            margin: 0;
+        }}
+        .alert-card__action {{
+            font-weight: 600;
+            font-size: 0.85rem;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            color: inherit;
+            text-decoration: none;
+        }}
+        .alert-card__action:hover {{
+            text-decoration: underline;
         }}
         .data-status-grid {{
             display: grid;
@@ -3481,29 +3643,64 @@ def render_hero_section(
     )
 
 
-def render_status_banner(alerts: Optional[List[str]]) -> None:
-    """アラート状況をアクセントカラーで表示する。"""
+def render_alert_cards(alerts: Optional[List[AlertMessage]]) -> None:
+    """Display alert cards with severity, icons, and recommended actions."""
 
-    if alerts:
-        items = "".join(f"<li>{html.escape(msg)}</li>" for msg in alerts)
-        st.markdown(
-            f"""
-            <div class="alert-banner alert-banner--warning">
-                <div class="alert-banner__title">⚠️ 警告が検知されました</div>
-                <ul>{items}</ul>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-    else:
+    if not alerts:
         st.markdown(
             """
-            <div class="alert-banner alert-banner--ok">
-                <div class="alert-banner__title">✅ 主要指標は設定した閾値内に収まっています。</div>
+            <div class="alert-card-grid">
+                <div class="alert-card alert-card--success">
+                    <div class="alert-card__header">
+                        <span class="alert-card__icon">✅</span>
+                        <div class="alert-card__title">主要指標は安定しています</div>
+                        <span class="alert-card__badge alert-card__badge--success">{success_label}</span>
+                    </div>
+                    <p class="alert-card__body">カスタマイズした閾値内に全ての指標が収まっています。この状態を維持するため、主要KPIを定期的に確認しましょう。</p>
+                </div>
             </div>
-            """,
+            """.format(success_label=html.escape(ALERT_SEVERITY_LABELS["success"])),
             unsafe_allow_html=True,
         )
+        return
+
+    card_html_parts: List[str] = []
+    for alert in alerts:
+        severity_key = alert.severity if alert.severity in ALERT_SEVERITY_LABELS else "info"
+        severity_label = ALERT_SEVERITY_LABELS.get(severity_key, ALERT_SEVERITY_LABELS["info"])
+        action_label = alert.action_label or "改善アイデアを見る"
+        action_html = ""
+        if alert.action_url:
+            action_html = (
+                "<a class=\"alert-card__action\" href=\"{url}\" target=\"_blank\" "
+                "rel=\"noopener noreferrer\">{label} →</a>"
+            ).format(url=html.escape(alert.action_url), label=html.escape(action_label))
+
+        card_html_parts.append(
+            """
+            <div class="alert-card alert-card--{severity}">
+                <div class="alert-card__header">
+                    <span class="alert-card__icon">{icon}</span>
+                    <div class="alert-card__title">{title}</div>
+                    <span class="alert-card__badge alert-card__badge--{severity}">{severity_label}</span>
+                </div>
+                <p class="alert-card__body">{message}</p>
+                {action}
+            </div>
+            """.format(
+                severity=html.escape(severity_key),
+                icon=html.escape(alert.icon or ""),
+                title=html.escape(alert.title),
+                severity_label=html.escape(severity_label),
+                message=html.escape(alert.message),
+                action=action_html,
+            )
+        )
+
+    st.markdown(
+        "<div class='alert-card-grid'>{}</div>".format("".join(card_html_parts)),
+        unsafe_allow_html=True,
+    )
 
 
 def render_search_bar() -> str:
@@ -7089,6 +7286,8 @@ def main() -> None:
     selected_granularity_label = st.session_state[freq_state_key]
     selected_freq = freq_lookup[selected_granularity_label]
 
+    render_alert_settings_panel()
+
     st.sidebar.markdown("---")
     if st.sidebar.button("設定をリセット", key="reset_filter_button"):
         reset_filters(default_filters)
@@ -7186,7 +7385,8 @@ def main() -> None:
     default_cash_plan = create_default_cashflow_plan(merged_df)
     default_cash_forecast = forecast_cashflow(default_cash_plan, starting_cash)
 
-    alerts = build_alerts(monthly_summary, kpis, default_cash_forecast)
+    active_thresholds = get_active_alert_thresholds()
+    alerts = build_alerts(monthly_summary, kpis, default_cash_forecast, thresholds=active_thresholds)
 
     channel_share_df = compute_channel_share(merged_df)
     category_share_df = compute_category_share(merged_df)
@@ -7273,7 +7473,7 @@ def main() -> None:
                 channel_selection=selected_channels,
                 category_selection=selected_categories,
             )
-            render_status_banner(alerts)
+            render_alert_cards(alerts)
             st.caption(f"対象期間: {period_start} 〜 {period_end}")
 
             kpi_metrics = render_first_level_kpi_strip(kpi_period_summary, selected_kpi_row)

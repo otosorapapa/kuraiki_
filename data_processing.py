@@ -5,7 +5,7 @@ from __future__ import annotations
 import io
 import math
 from dataclasses import dataclass, field
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -69,6 +69,126 @@ DEFAULT_CHANNEL_FEE_RATES: Dict[str, float] = {
 DEFAULT_FIXED_COST = 2_500_000  # 人件費や管理費などの固定費（目安）
 DEFAULT_LOAN_REPAYMENT = 600_000  # 月次の借入返済額の仮値
 DEFAULT_DORMANCY_DAYS = 120  # 休眠判定に用いる前回購入からの日数
+
+
+@dataclass(frozen=True)
+class AlertThresholdConfig:
+    """Configuration metadata for an alert threshold."""
+
+    key: str
+    label: str
+    default: float
+    description: str
+    min_value: Optional[float] = None
+    max_value: Optional[float] = None
+    step: Optional[float] = None
+    display_as_percentage: bool = False
+
+
+@dataclass
+class AlertMessage:
+    """Structured alert payload shared with the UI layer."""
+
+    key: str
+    title: str
+    message: str
+    severity: str
+    icon: str
+    action_label: str
+    action_url: Optional[str] = None
+    metric_value: Optional[float] = None
+    threshold: Optional[float] = None
+
+
+@dataclass
+class AlertContext:
+    """Data bundle passed to alert evaluators."""
+
+    monthly_summary: Optional[pd.DataFrame]
+    kpi_summary: Optional[Dict[str, Optional[float]]]
+    cashflow_forecast: Optional[pd.DataFrame]
+
+
+@dataclass
+class AlertRule:
+    """Single alert rule definition for the evaluation engine."""
+
+    key: str
+    title: str
+    icon: str
+    threshold_key: Optional[str]
+    action_label: str
+    action_url: Optional[str]
+    evaluator: Callable[[AlertContext, Dict[str, float], "AlertRule"], Optional[AlertMessage]]
+
+
+ALERT_THRESHOLD_DEFINITIONS: Dict[str, AlertThresholdConfig] = {
+    "revenue_drop_pct": AlertThresholdConfig(
+        key="revenue_drop_pct",
+        label="売上減少率の許容幅",
+        default=0.30,
+        description="前月比でどの程度売上が下がった場合にアラートを出すかの目安です。",
+        min_value=0.05,
+        max_value=0.8,
+        step=0.05,
+        display_as_percentage=True,
+    ),
+    "churn_rate": AlertThresholdConfig(
+        key="churn_rate",
+        label="解約率の上限",
+        default=0.05,
+        description="定期顧客の解約率がこの値を超えると改善提案を表示します。",
+        min_value=0.01,
+        max_value=0.25,
+        step=0.01,
+        display_as_percentage=True,
+    ),
+    "gross_margin_rate": AlertThresholdConfig(
+        key="gross_margin_rate",
+        label="粗利率の下限",
+        default=0.60,
+        description="粗利率が下限を割り込んだ場合に仕入・値付けの見直しを促します。",
+        min_value=0.3,
+        max_value=0.9,
+        step=0.05,
+        display_as_percentage=True,
+    ),
+    "cash_balance": AlertThresholdConfig(
+        key="cash_balance",
+        label="最低現金残高",
+        default=0.0,
+        description="キャッシュフロー予測で残高がこの値を下回ると資金繰りアラートを表示します。",
+        min_value=-2_000_000,
+        max_value=5_000_000,
+        step=50_000,
+        display_as_percentage=False,
+    ),
+}
+
+
+def get_default_alert_thresholds() -> Dict[str, float]:
+    """Return default alert thresholds."""
+
+    return {key: config.default for key, config in ALERT_THRESHOLD_DEFINITIONS.items()}
+
+
+def resolve_alert_thresholds(overrides: Optional[Dict[str, float]] = None) -> Dict[str, float]:
+    """Merge overrides with default thresholds, ignoring invalid values."""
+
+    resolved = get_default_alert_thresholds()
+    if not overrides:
+        return resolved
+    for key, value in overrides.items():
+        if key not in resolved or value is None:
+            continue
+        try:
+            numeric_value = float(value)
+        except (TypeError, ValueError):
+            continue
+        if math.isnan(numeric_value):
+            continue
+        resolved[key] = numeric_value
+    return resolved
 
 
 @dataclass
@@ -1306,39 +1426,183 @@ def forecast_cashflow(plan_df: pd.DataFrame, starting_cash: float) -> pd.DataFra
     return forecast_df
 
 
+def _evaluate_revenue_drop(
+    context: AlertContext, thresholds: Dict[str, float], rule: AlertRule
+) -> Optional[AlertMessage]:
+    summary = context.monthly_summary
+    if summary is None or summary.empty or len(summary) < 2:
+        return None
+    latest = summary.iloc[-1]
+    prev = summary.iloc[-2]
+    prev_sales = float(prev.get("sales_amount", 0.0) or 0.0)
+    latest_sales = float(latest.get("sales_amount", 0.0) or 0.0)
+    if prev_sales <= 0:
+        return None
+    drop_pct = (latest_sales - prev_sales) / prev_sales
+    threshold = thresholds.get(rule.threshold_key or "", 0.0)
+    if drop_pct >= 0 or abs(drop_pct) < threshold:
+        return None
+    severity = "critical" if abs(drop_pct) >= threshold * 1.5 else "warning"
+    message = (
+        f"売上が前月比で{drop_pct:.1%}となり、設定した許容幅({threshold:.0%})を超えて減少しています。"
+        "集客施策や在庫状況を確認し、需要減少の要因を特定してください。"
+    )
+    return AlertMessage(
+        key=rule.key,
+        title=rule.title,
+        message=message,
+        severity=severity,
+        icon=rule.icon,
+        action_label=rule.action_label,
+        action_url=rule.action_url,
+        metric_value=latest_sales,
+        threshold=threshold,
+    )
+
+
+def _evaluate_churn_rate(
+    context: AlertContext, thresholds: Dict[str, float], rule: AlertRule
+) -> Optional[AlertMessage]:
+    churn_rate = None
+    if context.kpi_summary:
+        churn_rate = context.kpi_summary.get("churn_rate")
+    if churn_rate is None or pd.isna(churn_rate):
+        return None
+    threshold = thresholds.get(rule.threshold_key or "", 0.0)
+    if churn_rate <= threshold:
+        return None
+    severity = "critical" if churn_rate >= threshold * 1.5 else "warning"
+    message = (
+        f"直近の解約率が{churn_rate:.1%}となり、上限値({threshold:.0%})を超過しています。"
+        "継続会員へのフォロー施策やオンボーディングの見直しを検討してください。"
+    )
+    return AlertMessage(
+        key=rule.key,
+        title=rule.title,
+        message=message,
+        severity=severity,
+        icon=rule.icon,
+        action_label=rule.action_label,
+        action_url=rule.action_url,
+        metric_value=float(churn_rate),
+        threshold=threshold,
+    )
+
+
+def _evaluate_gross_margin(
+    context: AlertContext, thresholds: Dict[str, float], rule: AlertRule
+) -> Optional[AlertMessage]:
+    gross_margin_rate = None
+    if context.kpi_summary:
+        gross_margin_rate = context.kpi_summary.get("gross_margin_rate")
+    if gross_margin_rate is None or pd.isna(gross_margin_rate):
+        return None
+    threshold = thresholds.get(rule.threshold_key or "", 0.0)
+    if gross_margin_rate >= threshold:
+        return None
+    severity = "critical" if gross_margin_rate <= threshold - 0.1 else "warning"
+    message = (
+        f"粗利率が{gross_margin_rate:.1%}と目標下限({threshold:.0%})を割り込んでいます。"
+        "仕入価格や販売単価、チャネルミックスの最適化を検討しましょう。"
+    )
+    return AlertMessage(
+        key=rule.key,
+        title=rule.title,
+        message=message,
+        severity=severity,
+        icon=rule.icon,
+        action_label=rule.action_label,
+        action_url=rule.action_url,
+        metric_value=float(gross_margin_rate),
+        threshold=threshold,
+    )
+
+
+def _evaluate_cash_balance(
+    context: AlertContext, thresholds: Dict[str, float], rule: AlertRule
+) -> Optional[AlertMessage]:
+    forecast = context.cashflow_forecast
+    if forecast is None or forecast.empty:
+        return None
+    threshold = thresholds.get(rule.threshold_key or "", 0.0)
+    min_balance = float(forecast["cash_balance"].min())
+    if min_balance >= threshold:
+        return None
+    severity = "critical" if min_balance < 0 else "warning"
+    message = (
+        "キャッシュフロー予測で最低現金残高が{balance:,.0f}円となり、設定した下限({threshold:,.0f}円)"
+        "を下回る見込みです。資金調達や支出計画の調整を検討してください。"
+    ).format(balance=min_balance, threshold=threshold)
+    return AlertMessage(
+        key=rule.key,
+        title=rule.title,
+        message=message,
+        severity=severity,
+        icon=rule.icon,
+        action_label=rule.action_label,
+        action_url=rule.action_url,
+        metric_value=min_balance,
+        threshold=threshold,
+    )
+
+
+ALERT_RULES: Tuple[AlertRule, ...] = (
+    AlertRule(
+        key="revenue_drop",
+        title="売上急落アラート",
+        icon="📉",
+        threshold_key="revenue_drop_pct",
+        action_label="売上改善チェックリスト",
+        action_url="docs/06_diagnostic_summary.md",
+        evaluator=_evaluate_revenue_drop,
+    ),
+    AlertRule(
+        key="churn_risk",
+        title="解約率悪化アラート",
+        icon="🔁",
+        threshold_key="churn_rate",
+        action_label="解約抑止アイデアを見る",
+        action_url="docs/01_user_research_and_kpi.md",
+        evaluator=_evaluate_churn_rate,
+    ),
+    AlertRule(
+        key="gross_margin_pressure",
+        title="粗利率低下アラート",
+        icon="💸",
+        threshold_key="gross_margin_rate",
+        action_label="原価改善のベストプラクティス",
+        action_url="docs/07_visualization_optimization.md",
+        evaluator=_evaluate_gross_margin,
+    ),
+    AlertRule(
+        key="cash_shortfall",
+        title="資金繰りリスク",
+        icon="🪙",
+        threshold_key="cash_balance",
+        action_label="資金繰り改善ガイド",
+        action_url="docs/08_phase3_ai_and_integration.md",
+        evaluator=_evaluate_cash_balance,
+    ),
+)
+
+
 def build_alerts(
     monthly_summary: pd.DataFrame,
     kpi_summary: Dict[str, Optional[float]],
     cashflow_forecast: pd.DataFrame,
     thresholds: Optional[Dict[str, float]] = None,
-) -> List[str]:
-    """アラート文言のリストを作成する。"""
-    thresholds = thresholds or {
-        "revenue_drop_pct": 0.3,
-        "churn_rate": 0.05,
-        "gross_margin_rate": 0.6,
-        "cash_balance": 0,
-    }
-    alerts: List[str] = []
+) -> List[AlertMessage]:
+    """アラート評価ルールに基づき、構造化されたアラートを生成する。"""
 
-    if monthly_summary is not None and len(monthly_summary) >= 2:
-        latest = monthly_summary.iloc[-1]
-        prev = monthly_summary.iloc[-2]
-        if prev["sales_amount"] and (latest["sales_amount"] < prev["sales_amount"] * (1 - thresholds["revenue_drop_pct"])):
-            drop_pct = (latest["sales_amount"] - prev["sales_amount"]) / prev["sales_amount"]
-            alerts.append(f"売上が前月比で{drop_pct:.1%}減少しています。原因分析を行ってください。")
-
-    churn_rate = kpi_summary.get("churn_rate") if kpi_summary else None
-    if churn_rate and churn_rate > thresholds["churn_rate"]:
-        alerts.append(f"解約率が{churn_rate:.1%}と高水準です。定期顧客のフォローを見直してください。")
-
-    gross_margin_rate = kpi_summary.get("gross_margin_rate") if kpi_summary else None
-    if gross_margin_rate and gross_margin_rate < thresholds["gross_margin_rate"]:
-        alerts.append(f"粗利率が{gross_margin_rate:.1%}と目標を下回っています。商品ミックスを確認しましょう。")
-
-    if cashflow_forecast is not None and not cashflow_forecast.empty:
-        min_balance = cashflow_forecast["cash_balance"].min()
-        if min_balance < thresholds["cash_balance"]:
-            alerts.append("将来の資金残高がマイナスに落ち込む見込みです。資金繰り対策を検討してください。")
-
+    resolved_thresholds = resolve_alert_thresholds(thresholds)
+    context = AlertContext(
+        monthly_summary=monthly_summary,
+        kpi_summary=kpi_summary,
+        cashflow_forecast=cashflow_forecast,
+    )
+    alerts: List[AlertMessage] = []
+    for rule in ALERT_RULES:
+        alert = rule.evaluator(context, resolved_thresholds, rule)
+        if alert is not None:
+            alerts.append(alert)
     return alerts
