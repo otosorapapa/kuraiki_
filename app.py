@@ -5,10 +5,12 @@ from __future__ import annotations
 import html
 import hashlib
 import io
+import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
 import calendar
 from datetime import date, datetime, timedelta
+import traceback
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, TypeVar, Union
 from urllib.parse import parse_qsl
 
@@ -52,6 +54,9 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 def trigger_rerun() -> None:
@@ -6156,6 +6161,13 @@ def main() -> None:
 
     render_intro_section()
 
+    st.sidebar.toggle(
+        "管理者モード",
+        value=bool(st.session_state.get("admin_mode_toggle", False)),
+        key="admin_mode_toggle",
+        help="管理者向けの詳細なログ表示を有効化します。",
+    )
+
     st.sidebar.image(COMPANY_LOGO_URL, width=140)
     st.sidebar.caption("McKinsey inspired analytics suite")
     st.sidebar.header("データ設定")
@@ -6366,7 +6378,17 @@ def main() -> None:
                 automated_sales=automated_sales_data,
                 automated_reports=automated_reports,
             )
-    except Exception:
+    except Exception as exc:
+        logger.exception("Failed to load dashboard data")
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        error_entry = {
+            "timestamp": timestamp,
+            "message": str(exc),
+            "traceback": "".join(
+                traceback.format_exception(type(exc), exc, exc.__traceback__)
+            ),
+        }
+        st.session_state.setdefault("admin_error_log", []).append(error_entry)
         st.session_state["has_loaded_data"] = False
         render_onboarding_wizard(
             onboarding_container,
@@ -7640,6 +7662,19 @@ def main() -> None:
                 st.dataframe(sales_validation.duplicate_rows.head(200))
         else:
             st.success("データ読み込み時に重大な問題は検出されませんでした。")
+
+        if st.session_state.get("admin_mode_toggle"):
+            admin_logs = st.session_state.get("admin_error_log", [])
+            with st.expander("管理者向けエラーログ", expanded=False):
+                if admin_logs:
+                    for log_entry in reversed(admin_logs):
+                        timestamp = log_entry.get("timestamp", "")
+                        message = log_entry.get("message", "")
+                        trace = log_entry.get("traceback", "")
+                        st.markdown(f"**{timestamp}** - {html.escape(message)}", unsafe_allow_html=False)
+                        st.code(trace, language="text")
+                else:
+                    st.info("現在表示できるエラーログはありません。")
 
         if automated_sales_data:
             status_rows = []
