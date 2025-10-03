@@ -998,23 +998,79 @@ def inject_mckinsey_style(*, dark_mode: bool = False) -> None:
             font-size: 0.8rem;
             font-weight: 600;
         }}
-        .main-nav-block div[role="radiogroup"] {{
-            display: flex;
-            flex-wrap: wrap;
-            gap: 0.6rem;
-        }}
-        .main-nav-block div[role="radiogroup"] label {{
-            padding: 0.5rem 1.2rem;
-            border-radius: var(--radius-chip);
-            border: 1px solid rgba(11,31,59,0.16);
+        .main-nav-block {{
+            position: sticky;
+            top: 0;
+            z-index: 120;
+            padding: 0.75rem 1rem;
             background: var(--surface-color);
-            font-weight: 600;
+            backdrop-filter: blur(12px);
+            border-bottom: 1px solid rgba(11,31,59,0.1);
+            border-radius: 0 0 var(--radius-card) var(--radius-card);
+            box-shadow: 0 8px 24px rgba(15,23,42,0.08);
+        }}
+        .main-nav-block .stColumn {{
+            flex: 1 1 0;
+        }}
+        .main-nav-item-wrapper {{
+            position: relative;
+            margin-bottom: 0;
+        }}
+        .main-nav-item-wrapper > div[data-testid="stButton"] {{
+            position: absolute;
+            inset: 0;
+            opacity: 0;
+            z-index: 2;
+        }}
+        .main-nav-item-wrapper > div[data-testid="stButton"] button {{
+            height: 100%;
+            width: 100%;
+            padding: 0;
+            border: none;
+            background: transparent;
+        }}
+        .main-nav-item {{
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.35rem;
+            justify-content: center;
+            padding: 0.85rem 0.9rem;
+            border-radius: var(--radius-chip);
+            border: 1px solid rgba(148,163,184,0.35);
+            background: rgba(148,163,184,0.12);
+            min-height: 100%;
+            transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease, border-color 0.2s ease;
+        }}
+        .main-nav-item__icon {{
+            font-size: 1.1rem;
+            line-height: 1;
             color: var(--text-color);
         }}
-        .main-nav-block div[role="radiogroup"] label[aria-checked="true"] {{
+        .main-nav-item__label {{
+            font-size: 0.95rem;
+            font-weight: 600;
+            color: var(--text-color);
+            letter-spacing: 0.01em;
+        }}
+        .main-nav-item:hover {{
+            transform: translateY(-2px);
+            box-shadow: 0 12px 24px rgba(15,23,42,0.14);
+        }}
+        .main-nav-item.is-active {{
             background: var(--primary-color);
+            border-color: rgba(37,99,235,0.65);
+            box-shadow: 0 16px 30px rgba(37,99,235,0.28);
+        }}
+        .main-nav-item.is-active .main-nav-item__icon {{
+            transform: scale(1.12);
             color: #ffffff;
-            border-color: rgba(11,31,59,0.35);
+        }}
+        .main-nav-item.is-active .main-nav-item__label {{
+            color: #ffffff;
+            font-size: 1.08rem;
+            font-weight: 700;
+            letter-spacing: 0.03em;
         }}
         .search-card input {{
             border-radius: var(--radius-input);
@@ -3403,26 +3459,47 @@ def persistent_segmented_control(
 def render_navigation() -> Tuple[str, str]:
     """トップレベルのナビゲーションを描画し、選択されたキーと表示ラベルを返す。"""
 
-    label_options = list(NAV_OPTION_LOOKUP.values())
-    label_to_key = {value: key for key, value in NAV_OPTION_LOOKUP.items()}
-
     current_key = st.session_state.get("main_nav", PRIMARY_NAV_ITEMS[0]["key"])
     if current_key not in NAV_OPTION_LOOKUP:
         current_key = PRIMARY_NAV_ITEMS[0]["key"]
-    current_label = NAV_OPTION_LOOKUP[current_key]
-    current_index = label_options.index(current_label) if current_label in label_options else 0
 
-    selected_label = st.radio(
-        "主要メニュー",
-        options=label_options,
-        horizontal=True,
-        index=current_index,
-        key="main_nav_display",
-        label_visibility="collapsed",
-    )
+    selected_key = current_key
 
-    selected_key = label_to_key[selected_label]
+    with st.container():
+        st.markdown("<div class='surface-card main-nav-block'>", unsafe_allow_html=True)
+        nav_columns = st.columns(len(PRIMARY_NAV_ITEMS))
+        for col, item in zip(nav_columns, PRIMARY_NAV_ITEMS):
+            item_key = item["key"]
+            item_label = NAV_LABEL_LOOKUP[item_key]
+            icon = item.get("icon", "")
+            is_active = item_key == current_key
+
+            col.markdown("<div class='main-nav-item-wrapper'>", unsafe_allow_html=True)
+            if col.button(
+                " ",
+                key=f"main_nav_button_{item_key}",
+                width="stretch",
+            ):
+                selected_key = item_key
+            col.markdown(
+                """
+                <div class="main-nav-item {active_class}" data-key="{key}">
+                    <span class="main-nav-item__icon">{icon}</span>
+                    <span class="main-nav-item__label">{label}</span>
+                </div>
+                </div>
+                """.format(
+                    active_class="is-active" if is_active else "",
+                    key=html.escape(item_key),
+                    icon=html.escape(icon),
+                    label=html.escape(item_label),
+                ),
+                unsafe_allow_html=True,
+            )
+        st.markdown("</div>", unsafe_allow_html=True)
+
     st.session_state["main_nav"] = selected_key
+    st.session_state["main_nav_display"] = NAV_OPTION_LOOKUP[selected_key]
     return selected_key, NAV_LABEL_LOOKUP[selected_key]
 
 
@@ -7212,14 +7289,12 @@ def main() -> None:
     total_records = int(len(merged_df)) if not merged_df.empty else 0
     alert_count = len(alerts) if alerts else 0
 
-    search_query = render_search_bar()
-
-    with st.container():
-        st.markdown("<div class='surface-card main-nav-block'>", unsafe_allow_html=True)
-        selected_nav_key, selected_nav_label = render_navigation()
-        st.markdown("</div>", unsafe_allow_html=True)
-
+    selected_nav_key, selected_nav_label = render_navigation()
     render_breadcrumb(selected_nav_label)
+
+    render_hero_section(latest_label, range_label, total_records, alert_count)
+
+    search_query = render_search_bar()
 
     if search_query:
         render_global_search_results(search_query, merged_df)
