@@ -6383,13 +6383,19 @@ def main() -> None:
     global_default_period = suggest_default_period(global_min_date, global_max_date)
 
     store_candidates = ["全社"]
+    candidate_values: List[str] = []
     if "store" in sales_df.columns:
         candidate_values = [str(value) for value in sales_df["store"].dropna().unique()]
         store_candidates.extend(candidate_values)
     store_candidates.extend(option for option in DEFAULT_STORE_OPTIONS if option not in store_candidates)
     store_options = list(dict.fromkeys(store_candidates)) or ["全社"]
-    preferred_store = "本店"
-    default_store = preferred_store if preferred_store in store_options else store_options[0]
+    if "全社" in store_options:
+        preferred_store = "全社"
+    elif candidate_values:
+        preferred_store = candidate_values[0]
+    else:
+        preferred_store = store_options[0]
+    default_store = preferred_store
 
     default_filters = {
         FILTER_STATE_KEYS["store"]: default_store,
