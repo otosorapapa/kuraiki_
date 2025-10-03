@@ -1178,6 +1178,78 @@ def ensure_sample_data_cached() -> None:
     st.session_state["sample_data_rows"] = int(len(sales))
 
 
+def _build_sample_filename(prefix: str, key: str) -> str:
+    """アップロードカードで使うサンプルCSVのファイル名を生成する。"""
+
+    digest = hashlib.md5(key.encode("utf-8")).hexdigest()[:8]
+    return f"{prefix}_{digest}.csv"
+
+
+def get_sample_sales_template(channel: Optional[str] = None, limit: int = 200) -> pd.DataFrame:
+    """チャネル別に整形したサンプル売上フォーマットを返す。"""
+
+    sales_df, _, _ = load_sample_data()
+    sample = sales_df.copy()
+    if channel:
+        filtered = sample[sample["channel"] == channel].copy()
+        sample = filtered if not filtered.empty else sample
+    if limit:
+        sample = sample.head(limit)
+    columns = [
+        "order_date",
+        "channel",
+        "store",
+        "product_code",
+        "product_name",
+        "category",
+        "quantity",
+        "sales_amount",
+        "customer_id",
+        "campaign",
+    ]
+    existing = [col for col in columns if col in sample.columns]
+    return sample[existing] if existing else sample
+
+
+def get_sample_cost_template() -> pd.DataFrame:
+    """原価率データのサンプルフォーマットを返す。"""
+
+    _, cost_df, _ = load_sample_data()
+    return cost_df.copy()
+
+
+def get_sample_subscription_template() -> pd.DataFrame:
+    """サブスク/KPIデータのサンプルフォーマットを返す。"""
+
+    _, _, subscription_df = load_sample_data()
+    sample = subscription_df.copy()
+    if "month" in sample.columns:
+        sample["month"] = sample["month"].astype(str)
+    return sample
+
+
+def get_plan_sales_template() -> pd.DataFrame:
+    """事業計画ウィザード向けの売上CSVテンプレートを返す。"""
+
+    sample_rows = [
+        {"項目": "自社サイト売上", "月次売上": 1_200_000, "チャネル": "自社サイト"},
+        {"項目": "楽天市場売上", "月次売上": 950_000, "チャネル": "楽天市場"},
+        {"項目": "Amazon売上", "月次売上": 780_000, "チャネル": "Amazon"},
+    ]
+    return pd.DataFrame(sample_rows, columns=SALES_PLAN_COLUMNS)
+
+
+def get_plan_expense_template() -> pd.DataFrame:
+    """事業計画ウィザード向けの経費CSVテンプレートを返す。"""
+
+    sample_rows = [
+        {"費目": "人件費", "月次金額": 600_000, "区分": "固定費"},
+        {"費目": "家賃", "月次金額": 200_000, "区分": "固定費"},
+        {"費目": "広告宣伝費", "月次金額": 180_000, "区分": "変動費"},
+    ]
+    return pd.DataFrame(sample_rows, columns=EXPENSE_PLAN_COLUMNS)
+
+
 def render_onboarding_wizard(
     container: Any,
     *,
@@ -2281,6 +2353,12 @@ def render_plan_step_sales(state: Dict[str, Any], context: Dict[str, Any]) -> No
             key="plan_sales_upload",
             help="勘定奉行やfreeeなどの会計ソフトから出力したCSVをアップロードすると自動でマッピングされます。",
         )
+        download_button_from_df(
+            "売上計画テンプレートをダウンロード",
+            get_plan_sales_template(),
+            _build_sample_filename("plan_sales", "wizard"),
+        )
+        st.caption("CSVの列構成を確認できるテンプレートファイルです。")
         if uploaded is not None:
             file_bytes = uploaded.getvalue()
             file_hash = hashlib.md5(file_bytes).hexdigest()
@@ -2445,6 +2523,12 @@ def render_plan_step_expenses(state: Dict[str, Any], context: Dict[str, Any]) ->
             key="plan_expense_upload",
             help="freeeや弥生会計などから出力した経費CSVをアップロードすると自動でマッピングします。",
         )
+        download_button_from_df(
+            "経費計画テンプレートをダウンロード",
+            get_plan_expense_template(),
+            _build_sample_filename("plan_expense", "wizard"),
+        )
+        st.caption("CSVの列構成を確認できるテンプレートファイルです。")
         if uploaded is not None:
             file_bytes = uploaded.getvalue()
             file_hash = hashlib.md5(file_bytes).hexdigest()
@@ -5664,6 +5748,12 @@ def render_scenario_analysis_section(
         uploaded_file = st.file_uploader(
             "シナリオ用の売上データをアップロード", type=["csv", "xlsx"], key="scenario_file_uploader"
         )
+        download_button_from_df(
+            "シナリオ用サンプルCSVをダウンロード",
+            get_sample_sales_template(limit=200),
+            _build_sample_filename("scenario", "sales"),
+        )
+        st.caption("フォーマット例を確認したい場合はサンプルCSVをご利用ください。")
         if uploaded_file is not None:
             try:
                 if uploaded_file.name.lower().endswith(".csv"):
@@ -5937,6 +6027,10 @@ def render_sidebar_upload_expander(
     meta_text: str,
     help_text: str,
     file_types: Optional[List[str]] = None,
+    sample_label: Optional[str] = None,
+    sample_generator: Optional[Callable[[], pd.DataFrame]] = None,
+    sample_filename: Optional[str] = None,
+    sample_note: Optional[str] = None,
 ) -> Any:
     """サイドバーにアイコン付きのアップロード用アコーディオンを描画する。"""
 
@@ -5966,6 +6060,20 @@ def render_sidebar_upload_expander(
             label_visibility="collapsed",
             help=help_text,
         )
+        if sample_generator is not None:
+            try:
+                sample_df = sample_generator()
+            except Exception as exc:  # pragma: no cover - 安全装置
+                st.caption(f"サンプルデータの生成に失敗しました: {exc}")
+            else:
+                if isinstance(sample_df, pd.DataFrame) and not sample_df.empty:
+                    if sample_note:
+                        st.caption(sample_note)
+                    download_button_from_df(
+                        sample_label or "サンプルフォーマットをダウンロード",
+                        sample_df,
+                        sample_filename or "sample.csv",
+                    )
     return uploaded
 
 
@@ -6016,6 +6124,10 @@ def main() -> None:
             multiple=True,
             meta_text=UPLOAD_META_MULTIPLE,
             help_text=UPLOAD_HELP_MULTIPLE,
+            sample_label=f"{config['channel']}サンプルCSVをダウンロード",
+            sample_generator=lambda channel=config["channel"]: get_sample_sales_template(channel),
+            sample_filename=_build_sample_filename("sales", config["channel"]),
+            sample_note="フォーマット確認用のサンプルCSVをダウンロードできます。",
         )
 
     st.sidebar.markdown(
@@ -6031,6 +6143,14 @@ def main() -> None:
             multiple=config.get("multiple", False),
             meta_text=config.get("meta_text", UPLOAD_META_SINGLE),
             help_text=config.get("help_text", UPLOAD_HELP_SINGLE),
+            sample_label=f"{config['label']}サンプルCSVをダウンロード",
+            sample_generator=(
+                get_sample_cost_template
+                if config["key"] == "cost"
+                else get_sample_subscription_template
+            ),
+            sample_filename=_build_sample_filename("ancillary", config["key"]),
+            sample_note="期待される列構成を確認できるサンプルです。",
         )
 
     cost_file = ancillary_results.get("cost")
