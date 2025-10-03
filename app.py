@@ -263,7 +263,7 @@ STATE_MESSAGES: Dict[str, Dict[str, Any]] = {
     },
     "success": {
         "type": "success",
-        "text": "データを更新しました。",
+        "text": "フィルタ設定を更新しました。",
     },
     "warning_gross_margin": {
         "type": "warning",
@@ -3806,9 +3806,9 @@ def clear_filter_selection(filter_name: str) -> None:
         return
 
     if filter_name == "store":
-        st.session_state[state_key] = None
+        set_state_and_widget(state_key, None)
     else:
-        st.session_state[state_key] = []
+        set_state_and_widget(state_key, [])
     trigger_rerun()
 
 
@@ -6855,57 +6855,57 @@ def main() -> None:
         else 0
     )
 
-    filter_state_keys = [
-        store_state_key,
-        period_state_key,
-        channel_state_key,
-        category_state_key,
-        freq_state_key,
-    ]
-
-    def _apply_filter_form() -> None:
-        for key in filter_state_keys:
-            update_state_from_widget(key)
+    def _apply_filter_form(state_key: str) -> None:
+        update_state_from_widget(state_key)
         trigger_rerun()
 
-    with st.sidebar.form("sidebar_filter_form"):
-        st.selectbox(
-            "店舗選択",
-            options=store_options,
-            index=store_index,
-            key=store_widget_key,
-            help="最後に選択した店舗は次回アクセス時も自動で設定されます。",
-        )
-        st.date_input(
-            "表示期間（開始日 / 終了日）",
-            value=st.session_state[period_state_key],
-            min_value=min_date,
-            max_value=max_date,
-            key=period_widget_key,
-            help="ダッシュボードに表示する対象期間です。開始日と終了日を指定してください。",
-        )
-        st.multiselect(
-            "表示するチャネル",
-            options=available_channels,
-            default=st.session_state[channel_state_key] if available_channels else [],
-            key=channel_widget_key,
-            help="チャネル選択は関連レポートでも共有されます。",
-        )
-        st.multiselect(
-            "表示するカテゴリ",
-            options=available_categories,
-            default=st.session_state[category_state_key] if available_categories else [],
-            key=category_widget_key,
-            help="カテゴリ選択は粗利・在庫の分析タブにも共有されます。",
-        )
-        st.selectbox(
-            "ダッシュボード表示粒度",
-            options=freq_labels,
-            index=freq_index,
-            key=freq_widget_key,
-            help="売上やKPIの集計粒度を選べます。月次・週次・四半期などの粒度に対応しています。",
-        )
-        st.form_submit_button("フィルタを適用", on_click=_apply_filter_form)
+    st.sidebar.selectbox(
+        "店舗選択",
+        options=store_options,
+        index=store_index,
+        key=store_widget_key,
+        help="最後に選択した店舗は次回アクセス時も自動で設定されます。",
+        on_change=_apply_filter_form,
+        args=(store_state_key,),
+    )
+    st.sidebar.date_input(
+        "表示期間（開始日 / 終了日）",
+        value=st.session_state[period_state_key],
+        min_value=min_date,
+        max_value=max_date,
+        key=period_widget_key,
+        help="ダッシュボードに表示する対象期間です。開始日と終了日を指定してください。",
+        on_change=_apply_filter_form,
+        args=(period_state_key,),
+    )
+    st.sidebar.multiselect(
+        "表示するチャネル",
+        options=available_channels,
+        default=st.session_state[channel_state_key] if available_channels else [],
+        key=channel_widget_key,
+        help="チャネル選択は関連レポートでも共有されます。",
+        on_change=_apply_filter_form,
+        args=(channel_state_key,),
+    )
+    st.sidebar.multiselect(
+        "表示するカテゴリ",
+        options=available_categories,
+        default=st.session_state[category_state_key] if available_categories else [],
+        key=category_widget_key,
+        help="カテゴリ選択は粗利・在庫の分析タブにも共有されます。",
+        on_change=_apply_filter_form,
+        args=(category_state_key,),
+    )
+    st.sidebar.selectbox(
+        "ダッシュボード表示粒度",
+        options=freq_labels,
+        index=freq_index,
+        key=freq_widget_key,
+        help="売上やKPIの集計粒度を選べます。月次・週次・四半期などの粒度に対応しています。",
+        on_change=_apply_filter_form,
+        args=(freq_state_key,),
+    )
+    st.sidebar.caption("選択内容は変更と同時にダッシュボードへ反映されます。")
 
     current_period = st.session_state[period_state_key]
     selected_granularity_label = st.session_state[freq_state_key]
