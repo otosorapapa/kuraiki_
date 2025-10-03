@@ -10,7 +10,7 @@ import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
 import calendar
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, time as dt_time
 import traceback
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, TypeVar, Union
 from urllib.parse import parse_qsl
@@ -21,6 +21,11 @@ import altair as alt
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
+
+try:
+    from streamlit_autorefresh import st_autorefresh as external_st_autorefresh
+except ImportError:  # pragma: no cover - optional dependency
+    external_st_autorefresh = None
 from streamlit_plotly_events import plotly_events
 
 from data_processing import (
@@ -349,6 +354,287 @@ STATUS_PILL_DETAILS: Dict[str, Tuple[str, str]] = {
     "warning": ("⚠️", "警告"),
     "error": ("⛔", "エラー"),
 }
+
+
+SCHEDULE_FREQUENCY_OPTIONS: List[Tuple[str, str]] = [
+    ("自動取得なし", "none"),
+    ("毎時", "hourly"),
+    ("毎日", "daily"),
+    ("毎週", "weekly"),
+]
+
+WEEKDAY_OPTIONS: List[Tuple[str, int]] = [
+    ("月曜日", 0),
+    ("火曜日", 1),
+    ("水曜日", 2),
+    ("木曜日", 3),
+    ("金曜日", 4),
+    ("土曜日", 5),
+    ("日曜日", 6),
+]
+
+DEFAULT_SCHEDULE_TIME = dt_time(hour=3, minute=0)
+AUTORERUN_INTERVAL_MS = 60_000
+
+
+def parse_api_params(params_raw: str) -> Optional[Dict[str, str]]:
+    """Convert a query parameter string into a dictionary."""
+
+    if not params_raw:
+        return None
+    parsed_pairs = parse_qsl(params_raw, keep_blank_values=False)
+    if not parsed_pairs:
+        return None
+    return {key: value for key, value in parsed_pairs}
+
+
+def _time_to_string(value: dt_time) -> str:
+    return value.strftime("%H:%M")
+
+
+def _string_to_time(value: Optional[str]) -> dt_time:
+    if isinstance(value, dt_time):
+        return value
+    if isinstance(value, str) and value:
+        try:
+            hour_str, minute_str = value.split(":", 1)
+            return dt_time(hour=int(hour_str), minute=int(minute_str))
+        except ValueError:
+            pass
+    return DEFAULT_SCHEDULE_TIME
+
+
+def _parse_datetime_string(value: Optional[str]) -> Optional[datetime]:
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str) and value:
+        try:
+            return datetime.fromisoformat(value)
+        except ValueError:
+            return None
+    return None
+
+
+def _format_datetime_label(value: Optional[datetime]) -> str:
+    if value is None:
+        return "-"
+    return value.strftime("%Y-%m-%d %H:%M")
+
+
+def ensure_api_schedule_state(channel: str) -> Dict[str, Any]:
+    """Ensure schedule defaults exist for the specified channel."""
+
+    schedules = st.session_state.setdefault("api_schedule_config", {})
+    schedule = schedules.get(channel)
+    default_payload = {
+        "frequency": "none",
+        "time": _time_to_string(DEFAULT_SCHEDULE_TIME),
+        "minute": 0,
+        "weekday": 0,
+        "enabled": False,
+        "next_run": None,
+        "last_run": None,
+    }
+    if schedule is None:
+        schedule = default_payload.copy()
+    else:
+        for key, default_value in default_payload.items():
+            schedule.setdefault(key, default_value)
+    schedules[channel] = schedule
+    st.session_state.setdefault("api_schedule_errors", {})
+    return schedule
+
+
+def get_schedule_executor() -> ThreadPoolExecutor:
+    executor: Optional[ThreadPoolExecutor] = st.session_state.get("api_schedule_executor")
+    if executor is None:
+        executor = ThreadPoolExecutor(max_workers=4)
+        st.session_state["api_schedule_executor"] = executor
+    return executor
+
+
+def compute_next_run(schedule: Dict[str, Any], reference: Optional[datetime] = None) -> Optional[datetime]:
+    """Calculate the next execution time based on the schedule configuration."""
+
+    reference = reference or datetime.now()
+    if not schedule.get("enabled") or schedule.get("frequency") in (None, "none"):
+        return None
+
+    frequency = schedule.get("frequency")
+    if frequency == "hourly":
+        minute = int(schedule.get("minute", 0))
+        candidate = reference.replace(minute=minute, second=0, microsecond=0)
+        if candidate <= reference:
+            candidate += timedelta(hours=1)
+        return candidate
+
+    schedule_time = _string_to_time(schedule.get("time"))
+    if frequency == "daily":
+        candidate = datetime.combine(reference.date(), schedule_time)
+        if candidate <= reference:
+            candidate += timedelta(days=1)
+        return candidate
+
+    if frequency == "weekly":
+        weekday = int(schedule.get("weekday", 0))
+        days_ahead = (weekday - reference.weekday()) % 7
+        candidate_date = reference.date() + timedelta(days=days_ahead)
+        candidate = datetime.combine(candidate_date, schedule_time)
+        if candidate <= reference:
+            candidate += timedelta(days=7)
+        return candidate
+
+    return None
+
+
+def execute_scheduled_fetch(
+    channel: str,
+    endpoint: str,
+    token: Optional[str],
+    params: Optional[Dict[str, str]],
+) -> Dict[str, Any]:
+    """Background job that fetches sales data for a channel."""
+
+    result: Dict[str, Any] = {"channel": channel, "timestamp": datetime.now()}
+    try:
+        fetched_df, fetch_report = fetch_sales_from_endpoint(
+            endpoint,
+            token=token,
+            params=params,
+            channel_hint=channel,
+        )
+        result.update({
+            "data": fetched_df,
+            "report": fetch_report,
+            "error": None,
+        })
+    except Exception:
+        result.update({
+            "data": None,
+            "report": None,
+            "error": traceback.format_exc(),
+        })
+    return result
+
+
+def collect_completed_schedule_jobs() -> None:
+    """Harvest finished futures and persist their outcome to session state."""
+
+    futures_info: Optional[Dict[str, Dict[str, Any]]] = st.session_state.get("api_schedule_futures")
+    if not futures_info:
+        return
+
+    completed_channels: List[str] = []
+    for channel, payload in list(futures_info.items()):
+        future = payload.get("future")
+        if future is None or not future.done():
+            continue
+        completed_channels.append(channel)
+        try:
+            result = future.result()
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.exception("Scheduled fetch failed for %s", channel)
+            st.session_state.setdefault("api_schedule_errors", {})[channel] = str(exc)
+            continue
+
+        timestamp: datetime = result.get("timestamp", datetime.now())
+        schedule = ensure_api_schedule_state(channel)
+        schedule["last_run"] = timestamp.isoformat()
+
+        error_text = result.get("error")
+        if error_text:
+            st.session_state.setdefault("api_schedule_errors", {})[channel] = error_text.splitlines()[0]
+            continue
+
+        fetched_df = result.get("data")
+        fetch_report: Optional[ValidationReport] = result.get("report")
+        st.session_state.setdefault("api_sales_data", {})[channel] = fetched_df
+        st.session_state.setdefault("api_sales_validation", {})[channel] = fetch_report
+        st.session_state.setdefault("api_last_fetched", {})[channel] = timestamp
+
+        if schedule.get("enabled") and schedule.get("frequency") not in (None, "none"):
+            next_run = compute_next_run(schedule, timestamp)
+            schedule["next_run"] = next_run.isoformat() if next_run else None
+
+        message_level = "success"
+        message_text = f"{channel}の自動取得が完了しました。"
+        if fetch_report and fetch_report.has_errors():
+            message_level = "error"
+            message_text = f"{channel}の自動取得でエラーが検出されました。詳細はデータ管理タブをご確認ください。"
+        elif fetch_report and fetch_report.has_warnings():
+            message_level = "warning"
+            message_text = f"{channel}の自動取得は完了しましたが警告があります。データ管理タブで内容を確認してください。"
+
+        st.session_state.setdefault("api_schedule_errors", {}).pop(channel, None)
+        st.session_state.setdefault("api_schedule_flash", []).append(
+            {"channel": channel, "level": message_level, "message": message_text}
+        )
+
+    for channel in completed_channels:
+        futures_info.pop(channel, None)
+
+    if futures_info:
+        st.session_state["api_schedule_futures"] = futures_info
+    else:
+        st.session_state.pop("api_schedule_futures", None)
+
+
+def maybe_trigger_scheduled_fetch(channel: str, schedule: Dict[str, Any]) -> None:
+    """Kick off a scheduled fetch if the next run time has passed."""
+
+    if not schedule.get("enabled") or schedule.get("frequency") in (None, "none"):
+        schedule["next_run"] = None
+        return
+
+    now = datetime.now()
+    next_run = _parse_datetime_string(schedule.get("next_run"))
+    if next_run is None:
+        next_run = compute_next_run(schedule, now)
+        schedule["next_run"] = next_run.isoformat() if next_run else None
+
+    if next_run is None or next_run > now:
+        return
+
+    inflight = st.session_state.setdefault("api_schedule_futures", {})
+    if channel in inflight:
+        return
+
+    endpoint = st.session_state.get(f"api_endpoint_{channel}", "")
+    if not endpoint:
+        st.session_state.setdefault("api_schedule_errors", {})[channel] = "エンドポイントが設定されていません。"
+        schedule["next_run"] = compute_next_run(schedule, now + timedelta(minutes=1)).isoformat()
+        return
+
+    token = st.session_state.get(f"api_token_{channel}", None) or None
+    params_raw = st.session_state.get(f"api_params_{channel}", "")
+    params = parse_api_params(params_raw)
+
+    executor = get_schedule_executor()
+    future = executor.submit(execute_scheduled_fetch, channel, endpoint, token, params)
+    inflight[channel] = {"future": future, "scheduled_for": next_run.isoformat()}
+
+    next_candidate = compute_next_run(schedule, now)
+    schedule["next_run"] = next_candidate.isoformat() if next_candidate else None
+    st.session_state.setdefault("api_schedule_errors", {}).pop(channel, None)
+
+
+def maybe_schedule_autorefresh() -> None:
+    """Trigger automatic reruns when any schedule is active."""
+
+    schedules: Dict[str, Any] = st.session_state.get("api_schedule_config", {})
+    has_active = any(
+        schedule.get("enabled") and schedule.get("frequency") not in (None, "none")
+        for schedule in schedules.values()
+    )
+    if not has_active:
+        return
+
+    autorefresh_callable: Optional[Callable[..., Any]] = getattr(st, "autorefresh", None)
+    if autorefresh_callable is None:
+        autorefresh_callable = external_st_autorefresh
+    if autorefresh_callable is None:
+        return
+    autorefresh_callable(interval=AUTORERUN_INTERVAL_MS, key="api_schedule_autorefresh")
 
 
 PRIMARY_NAV_ITEMS: List[Dict[str, str]] = [
@@ -7097,10 +7383,32 @@ def main() -> None:
     if "api_last_fetched" not in st.session_state:
         st.session_state["api_last_fetched"] = {}
 
+    collect_completed_schedule_jobs()
+
     st.sidebar.markdown("---")
     with st.sidebar.expander("API/RPA自動連携設定", expanded=False):
         st.caption("各モールのAPIやRPAが出力したURLを登録すると、手動アップロードなしで売上データを取得できます。")
+
+        for note in st.session_state.pop("api_schedule_flash", []):
+            level = note.get("level", "info")
+            message = note.get("message", "")
+            if level == "success":
+                st.success(message)
+            elif level == "warning":
+                st.warning(message)
+            else:
+                st.error(message)
+
+        frequency_label_to_value = {label: value for label, value in SCHEDULE_FREQUENCY_OPTIONS}
+        frequency_value_to_label = {value: label for label, value in SCHEDULE_FREQUENCY_OPTIONS}
+        frequency_labels = list(frequency_label_to_value.keys())
+
+        weekday_label_to_value = {label: value for label, value in WEEKDAY_OPTIONS}
+        weekday_value_to_label = {value: label for label, value in WEEKDAY_OPTIONS}
+        weekday_labels = list(weekday_label_to_value.keys())
+
         for channel in channel_files.keys():
+            schedule_state = ensure_api_schedule_state(channel)
             endpoint = st.text_input(f"{channel} APIエンドポイント", key=f"api_endpoint_{channel}")
             token = st.text_input(
                 f"{channel} APIトークン/キー",
@@ -7114,13 +7422,72 @@ def main() -> None:
                 help="日付範囲などの条件が必要な場合に指定します。",
             )
 
-            params_dict: Optional[Dict[str, str]] = None
-            if params_raw:
-                parsed_pairs = parse_qsl(params_raw, keep_blank_values=False)
-                if parsed_pairs:
-                    params_dict = {k: v for k, v in parsed_pairs}
+            params_dict = parse_api_params(params_raw)
 
-            fetch_now = st.button(f"{channel}の最新データを取得", key=f"fetch_api_{channel}")
+            current_frequency_label = frequency_value_to_label.get(
+                schedule_state.get("frequency", "none"),
+                frequency_labels[0],
+            )
+            selected_frequency_label = st.selectbox(
+                f"{channel} 自動取得頻度",
+                options=frequency_labels,
+                index=frequency_labels.index(current_frequency_label),
+                key=f"schedule_frequency_{channel}",
+            )
+            schedule_state["frequency"] = frequency_label_to_value[selected_frequency_label]
+
+            if schedule_state["frequency"] == "hourly":
+                selected_minute = st.number_input(
+                    f"{channel} 実行タイミング（分）",
+                    min_value=0,
+                    max_value=59,
+                    value=int(schedule_state.get("minute", 0)),
+                    key=f"schedule_minute_{channel}",
+                )
+                schedule_state["minute"] = int(selected_minute)
+            elif schedule_state["frequency"] in {"daily", "weekly"}:
+                selected_time = st.time_input(
+                    f"{channel} 実行時刻",
+                    value=_string_to_time(schedule_state.get("time")),
+                    key=f"schedule_time_{channel}",
+                )
+                schedule_state["time"] = _time_to_string(selected_time)
+                if schedule_state["frequency"] == "weekly":
+                    current_weekday_label = weekday_value_to_label.get(
+                        int(schedule_state.get("weekday", 0)),
+                        weekday_labels[0],
+                    )
+                    selected_weekday_label = st.selectbox(
+                        f"{channel} 実行曜日",
+                        options=weekday_labels,
+                        index=weekday_labels.index(current_weekday_label),
+                        key=f"schedule_weekday_{channel}",
+                    )
+                    schedule_state["weekday"] = weekday_label_to_value[selected_weekday_label]
+            else:
+                schedule_state["enabled"] = False
+                schedule_state["next_run"] = None
+
+            fetch_col, control_col = st.columns(2)
+            with fetch_col:
+                fetch_now = st.button(f"{channel}の最新データを取得", key=f"fetch_api_{channel}")
+            with control_col:
+                if schedule_state.get("enabled"):
+                    if st.button(f"{channel}のスケジュールを一時停止", key=f"pause_schedule_{channel}"):
+                        schedule_state["enabled"] = False
+                        schedule_state["next_run"] = None
+                else:
+                    if st.button(f"{channel}のスケジュールを再開", key=f"resume_schedule_{channel}"):
+                        if schedule_state.get("frequency") == "none":
+                            st.warning("自動取得頻度を選択してください。")
+                        else:
+                            schedule_state["enabled"] = True
+                            next_run = compute_next_run(schedule_state)
+                            schedule_state["next_run"] = (
+                                next_run.isoformat() if next_run else None
+                            )
+                            st.session_state.setdefault("api_schedule_errors", {}).pop(channel, None)
+
             if fetch_now:
                 if not endpoint:
                     st.warning("エンドポイントURLを入力してください。")
@@ -7134,13 +7501,24 @@ def main() -> None:
                         )
                     st.session_state["api_sales_data"][channel] = fetched_df
                     st.session_state["api_sales_validation"][channel] = fetch_report
-                    st.session_state["api_last_fetched"][channel] = datetime.now()
+                    now_ts = datetime.now()
+                    st.session_state["api_last_fetched"][channel] = now_ts
+                    schedule_state["last_run"] = now_ts.isoformat()
+                    if schedule_state.get("enabled") and schedule_state.get("frequency") not in (
+                        None,
+                        "none",
+                    ):
+                        next_run = compute_next_run(schedule_state, now_ts)
+                        schedule_state["next_run"] = next_run.isoformat() if next_run else None
                     if fetch_report.has_errors():
                         st.error(f"{channel}のAPI連携でエラーが発生しました。詳細はデータ管理タブをご確認ください。")
                     elif fetch_report.has_warnings():
                         st.warning(f"{channel}のデータは取得しましたが警告があります。データ管理タブで確認してください。")
                     else:
                         st.success(f"{channel}のデータ取得が完了しました。")
+                    st.session_state.setdefault("api_schedule_errors", {}).pop(channel, None)
+
+            maybe_trigger_scheduled_fetch(channel, schedule_state)
 
             last_fetch = st.session_state["api_last_fetched"].get(channel)
             if last_fetch:
@@ -7163,11 +7541,40 @@ def main() -> None:
                     unsafe_allow_html=True,
                 )
 
+            schedule_error = st.session_state.get("api_schedule_errors", {}).get(channel)
+            next_run_dt = _parse_datetime_string(schedule_state.get("next_run"))
+            last_run_dt = _parse_datetime_string(schedule_state.get("last_run"))
+            schedule_active = (
+                schedule_state.get("enabled")
+                and schedule_state.get("frequency") not in (None, "none")
+            )
+            schedule_status_label = "稼働中" if schedule_active else "停止中"
+            if channel in st.session_state.get("api_schedule_futures", {}):
+                schedule_status_label += " / 実行中..."
+            frequency_display = frequency_value_to_label.get(
+                schedule_state.get("frequency", "none"),
+                frequency_labels[0],
+            )
+            st.markdown(
+                "<div class='sidebar-meta'>"
+                f"自動取得: {frequency_display}（{schedule_status_label}）<br>"
+                f"次回予定: {_format_datetime_label(next_run_dt)}<br>"
+                f"最終自動実行: {_format_datetime_label(last_run_dt)}"
+                "</div>",
+                unsafe_allow_html=True,
+            )
+            if schedule_error:
+                st.error(f"自動取得スケジュールエラー: {schedule_error}")
+
+            st.markdown("---")
+
         if st.button("自動取得データをクリア", key="clear_api_sales"):
             st.session_state["api_sales_data"].clear()
             st.session_state["api_sales_validation"].clear()
             st.session_state["api_last_fetched"].clear()
             st.success("保存されていたAPI取得データをクリアしました。")
+
+    maybe_schedule_autorefresh()
 
     fixed_cost = st.sidebar.number_input(
         "月間固定費（販管費のうち人件費・地代等）",
