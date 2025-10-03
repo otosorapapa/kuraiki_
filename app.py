@@ -12,7 +12,7 @@ from contextlib import contextmanager
 import calendar
 from datetime import date, datetime, timedelta
 import traceback
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, TypeVar, Union
+from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple, TypeVar, Union
 from urllib.parse import parse_qsl
 
 import numpy as np
@@ -3506,8 +3506,51 @@ def render_status_banner(alerts: Optional[List[str]]) -> None:
         )
 
 
-def render_search_bar() -> str:
+def get_search_suggestions(merged_df: Optional[pd.DataFrame]) -> List[str]:
+    """売上データから検索候補となるラベルを抽出する。"""
+
+    if merged_df is None or merged_df.empty:
+        return []
+
+    suggestion_columns = ["product_name", "channel", "category"]
+    seen: Set[str] = set()
+    suggestions: List[str] = []
+    for column in suggestion_columns:
+        if column not in merged_df.columns:
+            continue
+        column_values = (
+            merged_df[column]
+            .dropna()
+            .astype(str)
+            .map(str.strip)
+        )
+        filtered_values = [value for value in column_values if value]
+        for value in dict.fromkeys(filtered_values):
+            if value not in seen:
+                seen.add(value)
+                suggestions.append(value)
+    return suggestions
+
+
+def render_search_bar(merged_df: Optional[pd.DataFrame]) -> str:
     """ヒーロー直下のクイック検索をカードスタイルで表示する。"""
+
+    suggestions = get_search_suggestions(merged_df)
+    placeholder_text = "商品名、チャネル、チュートリアルを検索"
+    suggestion_placeholder = "🔍 候補を選択..."
+    input_key = "global_search_input"
+    selection_key = "global_search_selection"
+    previous_key = "global_search_previous_input"
+    selection_applied_key = "global_search_selection_applied"
+
+    if input_key not in st.session_state:
+        st.session_state[input_key] = ""
+    if previous_key not in st.session_state:
+        st.session_state[previous_key] = ""
+    if selection_key not in st.session_state:
+        st.session_state[selection_key] = suggestion_placeholder
+    if selection_applied_key not in st.session_state:
+        st.session_state[selection_applied_key] = False
 
     with st.container():
         st.markdown(
@@ -3517,14 +3560,55 @@ def render_search_bar() -> str:
             "<div class='search-title'>クイック検索</div>",
             unsafe_allow_html=True,
         )
-        query = st.text_input(
+
+        current_query = st.text_input(
             "クイック検索",
-            placeholder="商品名、チャネル、チュートリアルを検索",
-            key="global_search",
+            key=input_key,
+            placeholder=placeholder_text,
             label_visibility="collapsed",
         )
+
+        previous_query = st.session_state.get(previous_key, "")
+        selection_was_applied = st.session_state.get(selection_applied_key, False)
+        if current_query != previous_query and not selection_was_applied:
+            st.session_state[selection_key] = suggestion_placeholder
+
+        normalized_query = current_query.strip().lower()
+        filtered_suggestions = suggestions
+        if normalized_query:
+            filtered_suggestions = [
+                value
+                for value in suggestions
+                if normalized_query in value.lower()
+            ]
+        filtered_suggestions = filtered_suggestions[:20]
+
+        suggestion_options = [suggestion_placeholder] + filtered_suggestions
+        if st.session_state.get(selection_key) not in suggestion_options:
+            st.session_state[selection_key] = suggestion_placeholder
+
+        selected_option = st.selectbox(
+            "候補から選択",
+            options=suggestion_options,
+            key=selection_key,
+            label_visibility="collapsed",
+        )
+
+        final_query = current_query.strip()
+        selection_applied = False
+        if selected_option != suggestion_placeholder:
+            trimmed_option = selected_option.strip()
+            final_query = trimmed_option
+            if st.session_state.get(input_key) != trimmed_option:
+                st.session_state[input_key] = trimmed_option
+                selection_applied = True
+
+        st.session_state[previous_key] = st.session_state.get(input_key, "")
+        st.session_state[selection_applied_key] = selection_applied
+
         st.markdown("</div>", unsafe_allow_html=True)
-    return query
+
+    return final_query
 
 
 def render_global_search_results(query: str, merged_df: pd.DataFrame) -> None:
@@ -7212,7 +7296,7 @@ def main() -> None:
     total_records = int(len(merged_df)) if not merged_df.empty else 0
     alert_count = len(alerts) if alerts else 0
 
-    search_query = render_search_bar()
+    search_query = render_search_bar(merged_df)
 
     with st.container():
         st.markdown("<div class='surface-card main-nav-block'>", unsafe_allow_html=True)
