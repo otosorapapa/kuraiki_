@@ -3905,13 +3905,14 @@ def render_dashboard_meta(
         )
 
 
-def render_first_level_kpi_strip(
-    kpi_period_summary: pd.DataFrame, selected_kpi_row: pd.Series
-) -> None:
-    """第1階層KPIを4枚のカードで表示する。"""
+def _build_first_level_kpi_metrics(
+    kpi_period_summary: Optional[pd.DataFrame],
+    selected_kpi_row: Optional[pd.Series],
+) -> List[Dict[str, Any]]:
+    """第1階層KPIカードに必要な値をまとめて返す。"""
 
     if selected_kpi_row is None or selected_kpi_row.empty:
-        return
+        return []
 
     prev_row: Optional[pd.Series] = None
     if (
@@ -3925,84 +3926,237 @@ def render_first_level_kpi_strip(
             if not candidates.empty:
                 prev_row = candidates.iloc[-1]
 
-    active_value = selected_kpi_row.get("active_customers_avg")
-    prev_active = prev_row.get("active_customers_avg") if prev_row is not None else np.nan
-    active_delta: Optional[float] = None
-    if pd.notna(active_value) and pd.notna(prev_active):
-        active_delta = float(active_value) - float(prev_active)
+    metrics: List[Dict[str, Any]] = []
 
-    ltv_value = selected_kpi_row.get("ltv")
-    ltv_delta = selected_kpi_row.get("ltv_delta")
-    if pd.isna(ltv_delta):
-        ltv_delta = None
-
-    arpu_value = selected_kpi_row.get("arpu")
-    arpu_delta = selected_kpi_row.get("arpu_delta")
-    if pd.isna(arpu_delta):
-        arpu_delta = None
-
-    churn_value = selected_kpi_row.get("churn_rate")
-    churn_delta = selected_kpi_row.get("churn_delta")
-    if pd.isna(churn_delta):
-        churn_delta = None
-
-    metrics = [
-        {
-            "label": "月次顧客数",
-            "value": format_number(active_value, digits=0, unit=" 人"),
-            "delta_value": active_delta,
-            "delta_text": format_delta(active_delta, digits=0, unit=" 人")
-            if active_delta is not None
-            else None,
-        },
-        {
-            "label": "LTV",
-            "value": _format_currency_compact(ltv_value),
-            "delta_value": ltv_delta,
-            "delta_text": format_delta(ltv_delta, digits=0, unit=" 円")
-            if ltv_delta is not None
-            else None,
-        },
-        {
-            "label": "ARPU",
-            "value": _format_currency_compact(arpu_value),
-            "delta_value": arpu_delta,
-            "delta_text": format_delta(arpu_delta, digits=0, unit=" 円")
-            if arpu_delta is not None
-            else None,
-        },
-        {
-            "label": "解約率",
-            "value": format_percent(churn_value),
-            "delta_value": churn_delta,
-            "delta_text": format_delta(churn_delta, percentage=True)
-            if churn_delta is not None
-            else None,
-        },
-    ]
-
-    cards_html = []
-    for metric in metrics:
-        delta_label = build_delta_label("前月比", metric["delta_text"], metric["delta_value"])
-        cards_html.append(
-            """
-            <div class="kpi-strip__card">
-                <div class="kpi-strip__label">{label}</div>
-                <div class="kpi-strip__value">{value}</div>
-                <div class="kpi-strip__delta {delta_class}">{delta}</div>
-            </div>
-            """.format(
-                label=html.escape(metric["label"]),
-                value=html.escape(metric["value"] if metric["value"] else "-"),
-                delta_class=kpi_delta_class(metric["delta_value"]),
-                delta=html.escape(delta_label),
-            )
+    if "active_customers_avg" in selected_kpi_row.index:
+        active_value = selected_kpi_row.get("active_customers_avg")
+        prev_active = prev_row.get("active_customers_avg") if prev_row is not None else np.nan
+        active_delta: Optional[float] = None
+        if pd.notna(active_value) and pd.notna(prev_active):
+            active_delta = float(active_value) - float(prev_active)
+        metrics.append(
+            {
+                "key": "active_customers",
+                "label": "月次顧客数",
+                "value": format_number(active_value, digits=0, unit=" 人"),
+                "raw_value": active_value,
+                "previous_raw_value": prev_active,
+                "delta_value": active_delta,
+                "delta_text": format_delta(active_delta, digits=0, unit=" 人")
+                if active_delta is not None
+                else None,
+                "value_column": "active_customers_avg",
+                "format_func": lambda v, unit=" 人": format_number(v, digits=0, unit=unit),
+                "chart_axis_format": ",.0f",
+                "is_percentage": False,
+            }
         )
 
-    st.markdown(
-        "<div class='kpi-strip'>{}</div>".format("".join(cards_html)),
-        unsafe_allow_html=True,
-    )
+    if "ltv" in selected_kpi_row.index:
+        ltv_value = selected_kpi_row.get("ltv")
+        ltv_delta = selected_kpi_row.get("ltv_delta")
+        if pd.isna(ltv_delta):
+            ltv_delta = None
+        metrics.append(
+            {
+                "key": "ltv",
+                "label": "LTV",
+                "value": _format_currency_compact(ltv_value),
+                "raw_value": ltv_value,
+                "previous_raw_value": None,
+                "delta_value": ltv_delta,
+                "delta_text": format_delta(ltv_delta, digits=0, unit=" 円")
+                if ltv_delta is not None
+                else None,
+                "value_column": "ltv",
+                "format_func": _format_currency_compact,
+                "chart_axis_format": ",.0f",
+                "is_percentage": False,
+            }
+        )
+
+    if "arpu" in selected_kpi_row.index:
+        arpu_value = selected_kpi_row.get("arpu")
+        arpu_delta = selected_kpi_row.get("arpu_delta")
+        if pd.isna(arpu_delta):
+            arpu_delta = None
+        metrics.append(
+            {
+                "key": "arpu",
+                "label": "ARPU",
+                "value": _format_currency_compact(arpu_value),
+                "raw_value": arpu_value,
+                "previous_raw_value": None,
+                "delta_value": arpu_delta,
+                "delta_text": format_delta(arpu_delta, digits=0, unit=" 円")
+                if arpu_delta is not None
+                else None,
+                "value_column": "arpu",
+                "format_func": _format_currency_compact,
+                "chart_axis_format": ",.0f",
+                "is_percentage": False,
+            }
+        )
+
+    if "churn_rate" in selected_kpi_row.index:
+        churn_value = selected_kpi_row.get("churn_rate")
+        churn_delta = selected_kpi_row.get("churn_delta")
+        if pd.isna(churn_delta):
+            churn_delta = None
+        metrics.append(
+            {
+                "key": "churn_rate",
+                "label": "解約率",
+                "value": format_percent(churn_value),
+                "raw_value": churn_value,
+                "previous_raw_value": None,
+                "delta_value": churn_delta,
+                "delta_text": format_delta(churn_delta, percentage=True)
+                if churn_delta is not None
+                else None,
+                "value_column": "churn_rate",
+                "format_func": format_percent,
+                "chart_axis_format": ".1%",
+                "is_percentage": True,
+            }
+        )
+
+    return metrics
+
+
+def render_first_level_kpi_strip(
+    kpi_period_summary: pd.DataFrame, selected_kpi_row: pd.Series
+) -> List[Dict[str, Any]]:
+    """第1階層KPIをStreamlitコンポーネントで表示する。"""
+
+    metrics = _build_first_level_kpi_metrics(kpi_period_summary, selected_kpi_row)
+    if not metrics:
+        st.info("表示可能なKPIデータが不足しています。")
+        st.session_state.pop("active_kpi_drilldown", None)
+        return []
+
+    st.session_state.setdefault("active_kpi_drilldown", None)
+    active_key = st.session_state.get("active_kpi_drilldown")
+    metric_keys = {metric["key"] for metric in metrics}
+    if active_key and active_key not in metric_keys:
+        st.session_state["active_kpi_drilldown"] = None
+        active_key = None
+
+    columns = st.columns(len(metrics))
+    for column, metric in zip(columns, metrics):
+        with column:
+            st.metric(
+                metric["label"],
+                metric["value"],
+                delta=metric.get("delta_text"),
+            )
+            is_active = active_key == metric["key"]
+            button_label = "詳細を閉じる" if is_active else "詳細を表示"
+            button_type = "primary" if is_active else "secondary"
+            if st.button(
+                button_label,
+                key=f"kpi_card_button_{metric['key']}",
+                type=button_type,
+                use_container_width=True,
+            ):
+                if is_active:
+                    st.session_state["active_kpi_drilldown"] = None
+                else:
+                    st.session_state["active_kpi_drilldown"] = metric["key"]
+
+    return metrics
+
+
+def render_active_kpi_details(
+    kpi_period_summary: Optional[pd.DataFrame],
+    metrics: Sequence[Dict[str, Any]],
+) -> None:
+    """選択中のKPIに応じた詳細ビューを表示する。"""
+
+    if not metrics or kpi_period_summary is None or kpi_period_summary.empty:
+        return
+
+    active_key = st.session_state.get("active_kpi_drilldown")
+    if not active_key:
+        return
+
+    metric_lookup = {metric["key"]: metric for metric in metrics}
+    metric = metric_lookup.get(active_key)
+    if metric is None:
+        st.session_state["active_kpi_drilldown"] = None
+        return
+
+    value_column = metric.get("value_column")
+    if not value_column or value_column not in kpi_period_summary.columns:
+        st.info(f"{metric['label']}の詳細を表示するためのデータが不足しています。")
+        return
+
+    required_columns = {"period_start", "period_label", value_column}
+    if not required_columns.issubset(kpi_period_summary.columns):
+        st.info("期間情報が不足しているため詳細を表示できません。")
+        return
+
+    detail_container = st.container()
+    with detail_container:
+        header_col, close_col = st.columns([6, 1])
+        close_clicked = close_col.button("閉じる", key="close_kpi_drilldown_button")
+        header_col.subheader(f"{metric['label']}の詳細")
+        if close_clicked:
+            st.session_state["active_kpi_drilldown"] = None
+            trigger_rerun()
+            return
+
+        st.metric(
+            metric["label"],
+            metric["value"],
+            delta=metric.get("delta_text"),
+        )
+
+        history = kpi_period_summary[["period_start", "period_label", value_column]].copy()
+        history["period_start"] = pd.to_datetime(history["period_start"], errors="coerce")
+        history.dropna(subset=["period_start"], inplace=True)
+        history.sort_values("period_start", inplace=True)
+        history = history.tail(12)
+        history.dropna(subset=[value_column], inplace=True)
+
+        if history.empty:
+            st.info(f"{metric['label']}の履歴データが不足しています。")
+            return
+
+        y_format = metric.get("chart_axis_format", ",.0f")
+        tooltip_format = y_format if not metric.get("is_percentage") else ".1%"
+        chart = (
+            alt.Chart(history)
+            .mark_line(point=alt.OverlayMarkDef(size=60, filled=True))
+            .encode(
+                x=alt.X(
+                    "period_start:T",
+                    title="期間",
+                    axis=alt.Axis(format="%Y-%m", labelOverlap=True),
+                ),
+                y=alt.Y(
+                    f"{value_column}:Q",
+                    title=metric["label"],
+                    axis=alt.Axis(format=y_format),
+                ),
+                tooltip=[
+                    alt.Tooltip("period_label:N", title="期間"),
+                    alt.Tooltip(
+                        f"{value_column}:Q",
+                        title=metric["label"],
+                        format=tooltip_format,
+                    ),
+                ],
+            )
+            .properties(height=280, title=f"{metric['label']}の推移")
+        )
+        st.altair_chart(apply_altair_theme(chart), use_container_width=True)
+
+        table_df = history[["period_label", value_column]].copy()
+        format_func: Callable[[Any], str] = metric.get("format_func", lambda v: "-")
+        table_df[value_column] = table_df[value_column].map(format_func)
+        table_df.rename(columns={"period_label": "期間", value_column: metric["label"]}, inplace=True)
+        st.dataframe(table_df, use_container_width=True)
 
 
 def render_kpi_overview_tab(kpi_period_summary: pd.DataFrame) -> None:
@@ -6944,7 +7098,8 @@ def main() -> None:
             render_status_banner(alerts)
             st.caption(f"対象期間: {period_start} 〜 {period_end}")
 
-            render_first_level_kpi_strip(kpi_period_summary, selected_kpi_row)
+            kpi_metrics = render_first_level_kpi_strip(kpi_period_summary, selected_kpi_row)
+            render_active_kpi_details(kpi_period_summary, kpi_metrics)
 
             primary_tab_entries = [
                 ("売上", "📈"),
