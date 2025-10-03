@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 180" role="img" aria-labelledby="title desc">
+  <title id="title">Cash flow preview</title>
+  <desc id="desc">Area chart showing cumulative cash balance</desc>
+  <rect width="320" height="180" rx="16" fill="#0F172A" opacity="0.06"/>
+  <path d="M20 140 L60 120 L100 100 L140 110 L180 80 L220 70 L260 60 L300 40 V160 H20 Z" fill="#15803D" opacity="0.35"/>
+  <polyline points="20,130 60,112 100,90 140,104 180,76 220,68 260,54 300,46" fill="none" stroke="#2563EB" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" opacity="0.6"/>
+</svg>

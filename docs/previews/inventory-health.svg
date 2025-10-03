@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 180" role="img" aria-labelledby="title desc">
+  <title id="title">Inventory health preview</title>
+  <desc id="desc">Stacked cards representing inventory levels</desc>
+  <rect width="320" height="180" rx="16" fill="#475569" opacity="0.08"/>
+  <rect x="60" y="40" width="80" height="100" rx="12" fill="#2563EB" opacity="0.25"/>
+  <rect x="120" y="30" width="110" height="120" rx="14" fill="#0F172A" opacity="0.14"/>
+  <rect x="170" y="50" width="90" height="90" rx="12" fill="#15803D" opacity="0.3"/>
+  <text x="125" y="98" font-family="'Inter', sans-serif" font-size="32" font-weight="600" fill="#0F172A" opacity="0.6">85d</text>
+</svg>
