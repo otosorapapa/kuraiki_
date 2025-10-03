@@ -1354,78 +1354,66 @@ def get_plan_expense_template() -> pd.DataFrame:
 
 
 def render_onboarding_wizard(
-    container: Any,
     *,
     data_loaded: bool,
     filters_ready: bool,
     analysis_ready: bool,
     sample_checked: bool,
-    visible: bool = True,
 ) -> None:
-    """サイドバー上部にオンボーディングウィザードを描画する。"""
+    """サイドバーにオンボーディングウィザードを描画する。"""
 
     desired_sample_state = bool(sample_checked)
     if st.session_state.get("use_sample_data") != desired_sample_state:
         set_state_and_widget("use_sample_data", desired_sample_state)
 
-    if not visible:
-        container.empty()
-        return
+    should_expand = not (data_loaded and filters_ready and analysis_ready)
+    wizard_box = st.sidebar.expander("はじめに", expanded=should_expand)
 
-    container.empty()
-    wizard_box = container.container()
+    step_definitions = [
+        {
+            "title": "ステップ1. データを読み込む",
+            "summary": "サンプルデータまたは自社データでダッシュボードを開始します。",
+            "details": [
+                "サンプルデータを読み込むとダッシュボードの流れをすぐに確認できます。",
+                "自社データを使う場合は売上CSVや経費Excelをアップロードしてください。",
+                "切り替え時はチェックボックスでサンプルデータ利用を制御できます。",
+            ],
+            "completed": data_loaded,
+            "badge": "1",
+        },
+        {
+            "title": "ステップ2. フィルタを設定",
+            "summary": "店舗・期間・チャネルなどの条件を決めて分析対象を絞り込みます。",
+            "details": [
+                "左側のフィルタで対象期間・チャネル・カテゴリを選択できます。",
+                "選択内容は保存され、次回アクセス時にも継続されます。",
+                "条件を変更するとダッシュボード全体の指標が即時に更新されます。",
+            ],
+            "completed": data_loaded and filters_ready,
+            "badge": "2",
+        },
+        {
+            "title": "ステップ3. ダッシュボードを確認",
+            "summary": "主要タブでKPIや資金繰りの結果を確認し、意思決定に役立てます。",
+            "details": [
+                "KPI・資金繰り・シナリオ分析タブで主要指標を比較できます。",
+                "アラートメッセージで粗利率や在庫などの改善ポイントを把握します。",
+                "必要に応じて計画ウィザードやデータタブに戻って数値を調整できます。",
+            ],
+            "completed": data_loaded and analysis_ready,
+            "badge": "3",
+        },
+    ]
 
-    step1_class = "onboarding-step onboarding-step--done" if data_loaded else "onboarding-step"
-    step2_class = (
-        "onboarding-step onboarding-step--done"
-        if data_loaded and filters_ready
-        else "onboarding-step"
-    )
-    step3_class = (
-        "onboarding-step onboarding-step--done"
-        if data_loaded and analysis_ready
-        else "onboarding-step"
-    )
+    wizard_box.markdown("### セットアップガイド")
+    for step in step_definitions:
+        badge = "✅" if step["completed"] else step["badge"]
+        wizard_box.markdown(f"#### {badge} {step['title']}")
+        wizard_box.caption(step["summary"])
+        detail_expander = wizard_box.expander(f"詳細: {step['title']}", expanded=False)
+        detail_expander.markdown("\n".join(f"- {item}" for item in step["details"]))
 
-    step1_badge = "✓" if data_loaded else "1"
-    step2_badge = "✓" if data_loaded and filters_ready else "2"
-    step3_badge = "✓" if data_loaded and analysis_ready else "3"
-
-    wizard_box.markdown(
-        f"""
-        <div class="onboarding-wizard onboarding-wizard--sidebar">
-            <div class="onboarding-wizard__title">セットアップ手順</div>
-            <div class="{step1_class}">
-                <div class="onboarding-step__header">
-                    <span class="onboarding-step__badge">{step1_badge}</span>
-                    <span class="onboarding-step__title">ステップ1: データを読み込む</span>
-                </div>
-                <div class="onboarding-step__desc">
-                    サンプルデータを読み込むか、自社のCSV/Excelをアップロードしてダッシュボードを起動します。
-                </div>
-            </div>
-            <div class="{step2_class}">
-                <div class="onboarding-step__header">
-                    <span class="onboarding-step__badge">{step2_badge}</span>
-                    <span class="onboarding-step__title">ステップ2: フィルタを設定</span>
-                </div>
-                <div class="onboarding-step__desc">
-                    店舗・期間・チャネルのフィルタを選択すると、分析対象が絞り込まれます。
-                </div>
-            </div>
-            <div class="{step3_class}">
-                <div class="onboarding-step__header">
-                    <span class="onboarding-step__badge">{step3_badge}</span>
-                    <span class="onboarding-step__title">ステップ3: ダッシュボード閲覧</span>
-                </div>
-                <div class="onboarding-step__desc">
-                    KPIや資金繰り、シナリオ分析タブで意思決定に必要な示唆を確認しましょう。
-                </div>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    wizard_box.divider()
 
     sample_widget_key = ensure_widget_mirror("use_sample_data")
 
@@ -6619,29 +6607,6 @@ def main() -> None:
     if st.session_state.pop("pending_enable_sample_data", False):
         set_state_and_widget("use_sample_data", True)
 
-    if "sidebar_onboarding_visible" not in st.session_state:
-        st.session_state["sidebar_onboarding_visible"] = True
-
-    show_onboarding = bool(st.session_state.get("sidebar_onboarding_visible", True))
-    toggle_label = ("▼ " if show_onboarding else "▶ ") + "はじめに"
-
-    def _toggle_sidebar_onboarding() -> None:
-        current = bool(st.session_state.get("sidebar_onboarding_visible", True))
-        st.session_state["sidebar_onboarding_visible"] = not current
-
-    st.sidebar.button(
-        toggle_label,
-        key="toggle_sidebar_onboarding",
-        use_container_width=True,
-        type="primary",
-        help="クリックして『はじめに』セクションの表示/非表示を切り替えます。",
-        on_click=_toggle_sidebar_onboarding,
-    )
-
-    show_onboarding = bool(st.session_state.get("sidebar_onboarding_visible", True))
-
-    onboarding_container = st.sidebar.container()
-
     if "use_sample_data" not in st.session_state:
         set_state_and_widget("use_sample_data", True)
     else:
@@ -6878,12 +6843,10 @@ def main() -> None:
         st.session_state.setdefault("admin_error_log", []).append(error_entry)
         st.session_state["has_loaded_data"] = False
         render_onboarding_wizard(
-            onboarding_container,
             data_loaded=False,
             filters_ready=False,
             analysis_ready=False,
             sample_checked=use_sample_data,
-            visible=show_onboarding,
         )
         display_state_message(
             "server_error",
@@ -6902,12 +6865,10 @@ def main() -> None:
         render_sidebar_disabled_placeholder()
         render_empty_dashboard_placeholder()
         render_onboarding_wizard(
-            onboarding_container,
             data_loaded=False,
             filters_ready=False,
             analysis_ready=False,
             sample_checked=use_sample_data,
-            visible=show_onboarding,
         )
 
         def _enable_sample_data() -> None:
@@ -7138,12 +7099,10 @@ def main() -> None:
     st.session_state["analysis_ready"] = analysis_ready
 
     render_onboarding_wizard(
-        onboarding_container,
         data_loaded=True,
         filters_ready=filters_ready,
         analysis_ready=analysis_ready,
         sample_checked=use_sample_data,
-        visible=show_onboarding,
     )
 
     if filtered_sales.empty:
