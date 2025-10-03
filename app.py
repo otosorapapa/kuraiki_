@@ -4,6 +4,7 @@ from __future__ import annotations
 # TODO: Streamlit UIコンポーネントを使ってダッシュボードを構築
 import html
 import hashlib
+import importlib
 import io
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
@@ -1607,29 +1608,54 @@ def display_state_message(
                 secondary_callable()
 
 
+def _subtract_calendar_months(reference: date, months: int) -> date:
+    """月単位で遡りつつ可能な限り日付を保つ。"""
+
+    year = reference.year
+    month = reference.month
+    day = reference.day
+    for _ in range(months):
+        month -= 1
+        if month == 0:
+            month = 12
+            year -= 1
+        month_days = calendar.monthrange(year, month)[1]
+        if day > month_days:
+            day = month_days
+    return date(year, month, day)
+
+
 def suggest_default_period(min_date: date, max_date: date) -> Tuple[date, date]:
-    """営業日に応じた推奨期間（基本は当月）を返す。"""
+    """利用可能なデータから今日を上限に直近12か月（不足時は365日分）の推奨期間を返す。"""
+
+    if min_date > max_date:
+        min_date, max_date = max_date, min_date
 
     today = date.today()
-    if today < min_date:
-        today = min_date
-    if today > max_date:
-        today = max_date
+    end_day = min(max_date, today)
+    if end_day < min_date:
+        end_day = min_date
 
-    closing_threshold = 3
-    if today.day <= closing_threshold:
-        reference = (today.replace(day=1) - timedelta(days=1)).replace(day=1)
+    available_span_days = (end_day - min_date).days
+
+    start_candidate: date
+    if available_span_days >= 365:
+        relativedelta_fn: Optional[Callable[..., Any]] = None
+        relativedelta_spec = importlib.util.find_spec("dateutil.relativedelta")
+        if relativedelta_spec is not None:
+            relativedelta_module = importlib.import_module("dateutil.relativedelta")
+            relativedelta_fn = getattr(relativedelta_module, "relativedelta", None)
+        if callable(relativedelta_fn):
+            start_candidate = end_day - relativedelta_fn(months=11)
+        else:
+            start_candidate = _subtract_calendar_months(end_day, 11)
     else:
-        reference = today.replace(day=1)
+        start_candidate = end_day - timedelta(days=365)
 
-    start_day = reference
-    last_day = calendar.monthrange(reference.year, reference.month)[1]
-    end_day = reference.replace(day=last_day)
-
-    start_day = max(start_day, min_date)
-    end_day = min(end_day, max_date)
+    start_day = max(min_date, start_candidate)
     if start_day > end_day:
-        start_day, end_day = min_date, max_date
+        start_day = min_date
+
     return start_day, end_day
 
 
