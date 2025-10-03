@@ -27,6 +27,7 @@ from data_processing import (
     DEFAULT_FIXED_COST,
     annotate_customer_segments,
     build_alerts,
+    adjust_cashflow_plan_for_scenario,
     calculate_kpis,
     create_current_pl,
     create_default_cashflow_plan,
@@ -5940,11 +5941,33 @@ def run_scenario_projection(
 
     scenario_name = scenario.get("name") or "新規シナリオ"
     growth = float(scenario.get("growth", 0.0)) / 100.0
-    margin = max(0.0, float(scenario.get("margin", 0.0))) / 100.0
+    margin_pct = max(0.0, float(scenario.get("margin", 0.0)))
+    margin = margin_pct / 100.0
     funding = float(scenario.get("funding", 0.0))
     horizon = int(scenario.get("horizon", 12) or 12)
     if horizon <= 0:
         horizon = 12
+
+    price_change_pct = float(scenario.get("price_change_pct", 0.0))
+    price_multiplier = max(0.0, 1.0 + price_change_pct / 100.0)
+    ad_budget = float(scenario.get("ad_budget", 0.0))
+    new_channel_sales = max(0.0, float(scenario.get("new_channel_sales", 0.0)))
+    new_channel_margin_pct = float(scenario.get("new_channel_margin_pct", margin_pct))
+    new_channel_margin = max(0.0, new_channel_margin_pct / 100.0)
+    launch_month = int(scenario.get("new_channel_launch_month", 1) or 1)
+    launch_cost = float(scenario.get("new_channel_launch_cost", 0.0))
+
+    base_sales_value = float(scenario.get("base_sales", 0.0) or 0.0)
+    base_gross_profit = float(scenario.get("base_gross_profit", 0.0) or 0.0)
+    base_operating_profit = float(scenario.get("base_operating_profit", 0.0) or 0.0)
+    if base_sales_value > 0:
+        baseline_gross_margin = base_gross_profit / base_sales_value
+        baseline_operating_margin = base_operating_profit / base_sales_value
+    else:
+        baseline_gross_margin = min(0.7, margin + 0.1)
+        baseline_operating_margin = margin
+    baseline_gross_margin = float(np.clip(baseline_gross_margin, 0.0, 1.0))
+    baseline_operating_margin = float(np.clip(baseline_operating_margin, 0.0, baseline_gross_margin))
 
     base_series = monthly_sales.copy() if monthly_sales is not None else pd.Series(dtype=float)
     if base_series.empty:
@@ -5970,9 +5993,23 @@ def run_scenario_projection(
     cumulative_cash = funding
     rows: List[Dict[str, Any]] = []
     for idx, (base_value, period) in enumerate(zip(base_array, projection_periods), start=1):
-        projected_sales = base_value * ((1 + growth) ** idx)
-        projected_profit = projected_sales * margin
-        cumulative_cash += projected_profit
+        core_sales = float(base_value) * ((1 + growth) ** idx) * price_multiplier
+        channel_sales = new_channel_sales if idx >= launch_month else 0.0
+        projected_sales = core_sales + channel_sales
+
+        core_gross_profit = core_sales * baseline_gross_margin
+        channel_gross_profit = channel_sales * new_channel_margin
+        projected_gross_profit = core_gross_profit + channel_gross_profit
+
+        core_operating_profit = core_sales * margin
+        channel_operating_profit = channel_sales * new_channel_margin
+        projected_operating_profit = core_operating_profit + channel_operating_profit - ad_budget
+        projected_operating_profit = min(projected_operating_profit, projected_gross_profit)
+        projected_operating_profit = max(projected_operating_profit, -projected_sales)
+
+        launch_outflow = launch_cost if idx == launch_month else 0.0
+        net_cash = projected_operating_profit - launch_outflow
+        cumulative_cash += net_cash
         rows.append(
             {
                 "scenario": scenario_name,
@@ -5980,17 +6017,26 @@ def run_scenario_projection(
                 "period": period.to_timestamp(),
                 "period_label": period.strftime("%Y-%m"),
                 "sales": projected_sales,
-                "profit": projected_profit,
+                "gross_profit": projected_gross_profit,
+                "profit": projected_operating_profit,
+                "operating_profit": projected_operating_profit,
                 "cash": cumulative_cash,
+                "launch_cost": launch_outflow,
                 "funding": funding,
                 "growth_pct": growth * 100,
                 "margin_pct": margin * 100,
+                "price_change_pct": price_change_pct,
+                "ad_budget": ad_budget,
+                "new_channel_sales": channel_sales,
+                "new_channel_margin_pct": new_channel_margin_pct,
             }
         )
 
     projection_df = pd.DataFrame(rows)
     annual_sales = float(projection_df["sales"].sum()) if not projection_df.empty else 0.0
     annual_profit = float(projection_df["profit"].sum()) if not projection_df.empty else 0.0
+    annual_gross_profit = float(projection_df.get("gross_profit", pd.Series(dtype=float)).sum()) if not projection_df.empty else 0.0
+    total_ad_spend = ad_budget * horizon + launch_cost
     summary_row = {
         "シナリオ": scenario_name,
         "年間売上": annual_sales,
@@ -6000,6 +6046,13 @@ def run_scenario_projection(
         "成長率(%)": growth * 100,
         "利益率(%)": margin * 100,
         "調達額": funding,
+        "年間粗利": annual_gross_profit,
+        "総広告投資": total_ad_spend,
+        "広告予算(月次)": ad_budget,
+        "価格変動率(%)": price_change_pct,
+        "新規チャネル売上(月次)": new_channel_sales,
+        "新規チャネル投入月": launch_month,
+        "新規チャネル営業利益率(%)": new_channel_margin_pct,
     }
 
     margin_center = margin * 100
@@ -6032,11 +6085,16 @@ def generate_phase2_report(
         buffer.write("[シナリオ比較サマリー]\n")
         for _, row in summary_df.iterrows():
             buffer.write(
-                "- {name}: 年間売上 {sales:,.0f} 円 / 年間利益 {profit:,.0f} 円 / 期末キャッシュ {cash:,.0f} 円\n".format(
+                (
+                    "- {name}: 年間売上 {sales:,.0f} 円 / 年間粗利 {gross:,.0f} 円 / 年間利益 {profit:,.0f} 円 / "
+                    "期末キャッシュ {cash:,.0f} 円 / 総広告投資 {ads:,.0f} 円\n"
+                ).format(
                     name=row.get("シナリオ", "-"),
                     sales=row.get("年間売上", 0.0),
+                    gross=row.get("年間粗利", 0.0),
                     profit=row.get("年間利益", 0.0),
                     cash=row.get("期末キャッシュ", 0.0),
+                    ads=row.get("総広告投資", 0.0),
                 )
             )
 
@@ -6154,14 +6212,73 @@ def render_scenario_analysis_section(
             st.info("シナリオ用のデータをアップロードするか、既存データを読み込んでください。")
 
         scenarios = st.session_state.get("scenario_inputs", [])
+        baseline_pl = st.session_state.get("scenario_baseline_pl", {})
+        baseline_sales = float(baseline_pl.get("sales", 0.0) or 0.0)
+        baseline_gross = float(baseline_pl.get("gross_profit", 0.0) or 0.0)
+        baseline_operating = float(baseline_pl.get("operating_profit", 0.0) or 0.0)
+        baseline_margin_pct = (
+            (baseline_operating / baseline_sales) * 100 if baseline_sales else 12.0
+        )
+        baseline_gross_margin_pct = (
+            (baseline_gross / baseline_sales) * 100 if baseline_sales else baseline_margin_pct + 10.0
+        )
+        baseline_gross_margin_pct = max(baseline_gross_margin_pct, baseline_margin_pct)
         with st.form("scenario_entry_form", clear_on_submit=True):
             st.subheader("シナリオパラメータ")
             default_name = f"シナリオ {len(scenarios) + 1}"
             scenario_name = st.text_input("シナリオ名", value=default_name)
             growth = st.number_input("売上成長率 (%)", min_value=-50.0, max_value=150.0, value=5.0, step=0.5)
-            margin = st.number_input("営業利益率 (%)", min_value=0.0, max_value=100.0, value=12.0, step=0.5)
+            margin = st.number_input(
+                "営業利益率 (%)",
+                min_value=0.0,
+                max_value=100.0,
+                value=float(np.clip(baseline_margin_pct, 0.0, 100.0)),
+                step=0.5,
+            )
             funding = st.number_input("資金調達額 (円)", min_value=0.0, value=0.0, step=100_000.0, format="%.0f")
             horizon = st.slider("分析期間 (ヶ月)", min_value=3, max_value=36, value=12)
+            price_change_pct = st.slider(
+                "価格変動率 (%)",
+                min_value=-20.0,
+                max_value=20.0,
+                value=0.0,
+                step=0.5,
+            )
+            ad_budget = st.number_input(
+                "広告予算増減 (月次, 円)",
+                min_value=-5_000_000.0,
+                max_value=5_000_000.0,
+                value=0.0,
+                step=50_000.0,
+                format="%.0f",
+            )
+            new_channel_sales = st.number_input(
+                "新規チャネル月次売上 (円)",
+                min_value=0.0,
+                value=0.0,
+                step=100_000.0,
+                format="%.0f",
+            )
+            new_channel_margin_pct = st.slider(
+                "新規チャネル営業利益率 (%)",
+                min_value=0.0,
+                max_value=80.0,
+                value=float(np.clip(baseline_gross_margin_pct, 0.0, 80.0)),
+                step=1.0,
+            )
+            new_channel_launch_month = st.slider(
+                "新規チャネル投入月 (シミュレーション内)",
+                min_value=1,
+                max_value=horizon,
+                value=min(3, horizon),
+            )
+            new_channel_launch_cost = st.number_input(
+                "新規チャネル初期投資 (円)",
+                min_value=0.0,
+                value=0.0,
+                step=100_000.0,
+                format="%.0f",
+            )
             submitted = st.form_submit_button("シナリオを追加")
             if submitted:
                 scenarios.append(
@@ -6171,6 +6288,15 @@ def render_scenario_analysis_section(
                         "margin": margin,
                         "funding": funding,
                         "horizon": horizon,
+                        "price_change_pct": price_change_pct,
+                        "ad_budget": ad_budget,
+                        "new_channel_sales": new_channel_sales,
+                        "new_channel_margin_pct": new_channel_margin_pct,
+                        "new_channel_launch_month": new_channel_launch_month,
+                        "new_channel_launch_cost": new_channel_launch_cost,
+                        "base_sales": baseline_sales,
+                        "base_gross_profit": baseline_gross,
+                        "base_operating_profit": baseline_operating,
                     }
                 )
                 st.session_state["scenario_inputs"] = scenarios
@@ -6181,7 +6307,9 @@ def render_scenario_analysis_section(
             for idx, scenario in enumerate(list(scenarios)):
                 info_col, remove_col = st.columns([5, 1])
                 info_col.markdown(
-                    f"**{scenario['name']}** — 成長率 {scenario['growth']:.1f}% / 利益率 {scenario['margin']:.1f}% / "
+                    f"**{scenario['name']}** — 成長率 {scenario['growth']:.1f}% / 価格変動 {scenario.get('price_change_pct', 0.0):.1f}% / "
+                    f"利益率 {scenario['margin']:.1f}% / 広告 {scenario.get('ad_budget', 0.0):,.0f} 円 / "
+                    f"新チャネル {scenario.get('new_channel_sales', 0.0):,.0f} 円 (利率 {scenario.get('new_channel_margin_pct', 0.0):.1f}%) / "
                     f"調達額 {scenario['funding']:,.0f} 円 / 期間 {scenario['horizon']}ヶ月"
                 )
                 if remove_col.button("削除", key=f"remove_scenario_{idx}"):
@@ -6310,30 +6438,82 @@ def render_scenario_analysis_section(
                 summary_df = pd.DataFrame(summaries)
                 st.session_state["phase2_summary_df"] = summary_df
 
-                st.markdown("### 年間売上・利益比較")
-                st.dataframe(
-                    summary_df.style.format(
-                        {
-                            "年間売上": "{:.0f}",
-                            "年間利益": "{:.0f}",
-                            "平均月次売上": "{:.0f}",
-                            "期末キャッシュ": "{:.0f}",
-                            "成長率(%)": "{:.1f}",
-                            "利益率(%)": "{:.1f}",
-                            "調達額": "{:.0f}",
-                        }
-                    )
-                )
+                metric_order = [
+                    "シナリオ",
+                    "年間売上",
+                    "年間粗利",
+                    "年間利益",
+                    "平均月次売上",
+                    "期末キャッシュ",
+                    "総広告投資",
+                    "広告予算(月次)",
+                    "価格変動率(%)",
+                    "新規チャネル売上(月次)",
+                    "新規チャネル投入月",
+                    "新規チャネル営業利益率(%)",
+                    "成長率(%)",
+                    "利益率(%)",
+                    "調達額",
+                ]
+                available_columns = [col for col in metric_order if col in summary_df.columns]
+                formatters = {
+                    "年間売上": "{:.0f}",
+                    "年間粗利": "{:.0f}",
+                    "年間利益": "{:.0f}",
+                    "平均月次売上": "{:.0f}",
+                    "期末キャッシュ": "{:.0f}",
+                    "総広告投資": "{:.0f}",
+                    "広告予算(月次)": "{:.0f}",
+                    "価格変動率(%)": "{:.1f}",
+                    "新規チャネル売上(月次)": "{:.0f}",
+                    "新規チャネル投入月": "{:.0f}",
+                    "新規チャネル営業利益率(%)": "{:.1f}",
+                    "成長率(%)": "{:.1f}",
+                    "利益率(%)": "{:.1f}",
+                    "調達額": "{:.0f}",
+                }
+                st.markdown("### 主要指標比較テーブル")
+                st.dataframe(summary_df[available_columns].style.format(formatters))
 
+                st.markdown("### 売上推移比較")
                 sales_chart = alt.Chart(combined_df).mark_line().encode(
                     x=alt.X("period:T", title="期間"),
                     y=alt.Y("sales:Q", title="売上高"),
                     color=alt.Color("scenario:N", title="シナリオ"),
                     tooltip=[
-                        "scenario", "period_label", alt.Tooltip("sales", title="売上高", format=",")
+                        "scenario",
+                        "period_label",
+                        alt.Tooltip("sales", title="売上高", format=","),
                     ],
-                ).properties(height=360)
+                ).properties(height=320)
                 st.altair_chart(apply_altair_theme(sales_chart), use_container_width=True)
+
+                if "gross_profit" in combined_df.columns:
+                    st.markdown("### 粗利推移比較")
+                    gross_chart = alt.Chart(combined_df).mark_line().encode(
+                        x=alt.X("period:T", title="期間"),
+                        y=alt.Y("gross_profit:Q", title="粗利"),
+                        color=alt.Color("scenario:N", title="シナリオ"),
+                        tooltip=[
+                            "scenario",
+                            "period_label",
+                            alt.Tooltip("gross_profit", title="粗利", format=","),
+                        ],
+                    ).properties(height=320)
+                    st.altair_chart(apply_altair_theme(gross_chart), use_container_width=True)
+
+                st.markdown("### 資金残高推移比較")
+                cash_chart = alt.Chart(combined_df).mark_line().encode(
+                    x=alt.X("period:T", title="期間"),
+                    y=alt.Y("cash:Q", title="資金残高"),
+                    color=alt.Color("scenario:N", title="シナリオ"),
+                    tooltip=[
+                        "scenario",
+                        "period_label",
+                        alt.Tooltip("cash", title="資金残高", format=","),
+                    ],
+                ).properties(height=320)
+                st.altair_chart(apply_altair_theme(cash_chart), use_container_width=True)
 
                 if sensitivity_frames:
                     sensitivity_combined = pd.concat(sensitivity_frames, ignore_index=True)
@@ -7183,6 +7363,7 @@ def main() -> None:
     kpi_period_summary = aggregate_kpi_history(kpi_history_df, selected_freq)
 
     base_pl = create_current_pl(merged_df, subscription_df, fixed_cost=fixed_cost)
+    st.session_state["scenario_baseline_pl"] = base_pl
     default_cash_plan = create_default_cashflow_plan(merged_df)
     default_cash_forecast = forecast_cashflow(default_cash_plan, starting_cash)
 
@@ -7751,18 +7932,63 @@ def main() -> None:
             expense_table_state = plan_state.get("expense_table")
         st.markdown("売上計画や広告費を調整してPL・キャッシュフローをシミュレートします。")
 
+        base_cash_plan = create_default_cashflow_plan(merged_df).copy()
+        plan_preview = base_cash_plan.copy()
+        plan_preview["month"] = plan_preview["month"].astype(str)
+
         col1, col2, col3, col4 = st.columns(4)
         sales_growth = col1.slider("売上成長率", min_value=-0.5, max_value=0.5, value=0.05, step=0.01)
         cost_adj = col2.slider("原価率変動", min_value=-0.1, max_value=0.1, value=0.0, step=0.01)
         sga_change = col3.slider("販管費変動率", min_value=-0.3, max_value=0.3, value=0.0, step=0.01)
-        extra_ad = col4.number_input("追加広告費", min_value=0.0, value=0.0, step=50_000.0, format="%.0f")
+        price_change_pct = col4.slider("価格変動率 (%)", min_value=-20.0, max_value=20.0, value=0.0, step=0.5)
+
+        plan_horizon = len(plan_preview) if not plan_preview.empty else 12
+        detail_cols = st.columns(5)
+        ad_budget_delta = detail_cols[0].number_input(
+            "広告予算増減 (月次)",
+            min_value=-5_000_000.0,
+            max_value=5_000_000.0,
+            value=0.0,
+            step=50_000.0,
+            format="%.0f",
+        )
+        new_channel_sales = detail_cols[1].number_input(
+            "新規チャネル月次売上",
+            min_value=0.0,
+            value=0.0,
+            step=100_000.0,
+            format="%.0f",
+        )
+        new_channel_margin_pct = detail_cols[2].slider(
+            "新規チャネル営業利益率 (%)",
+            min_value=0.0,
+            max_value=80.0,
+            value=20.0,
+            step=1.0,
+        )
+        new_channel_launch_month = detail_cols[3].slider(
+            "新規チャネル投入月",
+            min_value=1,
+            max_value=max(plan_horizon, 1),
+            value=min(3, max(plan_horizon, 1)),
+        )
+        new_channel_launch_cost = detail_cols[4].number_input(
+            "新規チャネル初期投資",
+            min_value=0.0,
+            value=0.0,
+            step=100_000.0,
+            format="%.0f",
+        )
 
         pl_result = simulate_pl(
             base_pl,
             sales_growth_rate=sales_growth,
             cost_rate_adjustment=cost_adj,
             sga_change_rate=sga_change,
-            additional_ad_cost=extra_ad,
+            price_change_rate=price_change_pct / 100.0,
+            advertising_budget_change=ad_budget_delta,
+            new_channel_sales=new_channel_sales,
+            new_channel_margin_rate=new_channel_margin_pct / 100.0,
         )
         st.dataframe(pl_result.style.format({"現状": "{:,.0f}", "シナリオ": "{:,.0f}", "増減": "{:,.0f}"}))
 
@@ -7774,21 +8000,41 @@ def main() -> None:
 
         render_profit_meter(pl_result, base_pl)
 
-        plan_edit = create_default_cashflow_plan(merged_df).copy()
-        plan_edit["month"] = plan_edit["month"].astype(str)
         with st.expander("キャッシュフロープランを編集"):
             edited_plan = st.data_editor(
-                plan_edit,
+                plan_preview,
                 num_rows="dynamic",
                 use_container_width=True,
             )
         if isinstance(edited_plan, pd.DataFrame):
-            plan_to_use = edited_plan.copy()
+            plan_base = edited_plan.copy()
         else:
-            plan_to_use = pd.DataFrame(edited_plan)
-        if not plan_to_use.empty:
-            plan_to_use["month"] = plan_to_use["month"].apply(lambda x: pd.Period(x, freq="M"))
-        cash_forecast = forecast_cashflow(plan_to_use, starting_cash)
+            plan_base = pd.DataFrame(edited_plan)
+        if not plan_base.empty:
+            plan_base["month"] = plan_base["month"].apply(lambda x: pd.Period(x, freq="M"))
+
+        if not pl_result.empty:
+            operating_current = float(
+                pl_result.loc[pl_result["項目"] == "営業利益", "現状"].iloc[0]
+            )
+            operating_scenario = float(
+                pl_result.loc[pl_result["項目"] == "営業利益", "シナリオ"].iloc[0]
+            )
+        else:
+            operating_current = operating_scenario = 0.0
+        operating_delta = operating_scenario - operating_current
+
+        if not plan_base.empty:
+            scenario_cash_plan = adjust_cashflow_plan_for_scenario(
+                plan_base,
+                operating_delta,
+                launch_cost=new_channel_launch_cost,
+                launch_month_index=int(new_channel_launch_month),
+            )
+        else:
+            scenario_cash_plan = plan_base
+
+        cash_forecast = forecast_cashflow(scenario_cash_plan, starting_cash)
         if not cash_forecast.empty:
             cash_chart = px.line(
                 cash_forecast.assign(month=cash_forecast["month"].astype(str)),
@@ -7802,6 +8048,11 @@ def main() -> None:
             cash_chart.update_layout(yaxis_title="円", xaxis_title="月")
             st.plotly_chart(cash_chart, use_container_width=True)
             st.dataframe(cash_forecast)
+            if not scenario_cash_plan.empty:
+                display_plan = scenario_cash_plan.copy()
+                display_plan["month"] = display_plan["month"].astype(str)
+                st.markdown("#### シナリオ適用後キャッシュフロー計画")
+                st.dataframe(display_plan)
         else:
             st.info("キャッシュフロープランが未設定です。")
 

@@ -1224,20 +1224,42 @@ def simulate_pl(
     sales_growth_rate: float,
     cost_rate_adjustment: float,
     sga_change_rate: float,
-    additional_ad_cost: float,
+    additional_ad_cost: float = 0.0,
+    *,
+    price_change_rate: float = 0.0,
+    advertising_budget_change: float = 0.0,
+    new_channel_sales: float = 0.0,
+    new_channel_margin_rate: float = 0.3,
 ) -> pd.DataFrame:
     """PLシミュレーションを行い結果を返す。"""
-    current_sales = base_pl.get("sales", 0.0)
-    current_cogs = base_pl.get("cogs", 0.0)
-    current_sga = base_pl.get("sga", 0.0)
-    current_gross = base_pl.get("gross_profit", current_sales - current_cogs)
 
-    new_sales = current_sales * (1 + sales_growth_rate)
-    base_cost_ratio = current_cogs / current_sales if current_sales else 0
-    new_cost_ratio = max(0, base_cost_ratio + cost_rate_adjustment)
-    new_cogs = new_sales * new_cost_ratio
-    new_gross = new_sales - new_cogs
-    new_sga = current_sga * (1 + sga_change_rate) + additional_ad_cost
+    current_sales = float(base_pl.get("sales", 0.0) or 0.0)
+    current_cogs = float(base_pl.get("cogs", 0.0) or 0.0)
+    current_sga = float(base_pl.get("sga", 0.0) or 0.0)
+    current_gross = float(base_pl.get("gross_profit", current_sales - current_cogs) or 0.0)
+
+    price_multiplier = 1.0 + float(price_change_rate)
+    price_multiplier = max(price_multiplier, 0.0)
+    growth_multiplier = 1.0 + float(sales_growth_rate)
+
+    adjusted_sales = current_sales * growth_multiplier * price_multiplier
+    base_cost_ratio = current_cogs / current_sales if current_sales else 0.0
+    new_cost_ratio = max(0.0, base_cost_ratio + float(cost_rate_adjustment))
+    adjusted_cogs = adjusted_sales * new_cost_ratio
+    adjusted_gross = adjusted_sales - adjusted_cogs
+
+    channel_sales = max(0.0, float(new_channel_sales))
+    channel_margin = float(new_channel_margin_rate)
+    channel_margin = min(max(channel_margin, 0.0), 1.0)
+    channel_gross = channel_sales * channel_margin
+    channel_cogs = channel_sales - channel_gross
+
+    new_sales = adjusted_sales + channel_sales
+    new_cogs = adjusted_cogs + channel_cogs
+    new_gross = adjusted_gross + channel_gross
+
+    total_ad_adjustment = float(additional_ad_cost) + float(advertising_budget_change)
+    new_sga = current_sga * (1 + float(sga_change_rate)) + total_ad_adjustment
     new_operating_profit = new_gross - new_sga
 
     result = pd.DataFrame(
@@ -1248,6 +1270,15 @@ def simulate_pl(
         }
     )
     result["増減"] = result["シナリオ"] - result["現状"]
+    result.attrs["assumptions"] = {
+        "price_multiplier": price_multiplier,
+        "channel_sales": channel_sales,
+        "channel_margin": channel_margin,
+        "advertising_adjustment": total_ad_adjustment,
+        "scenario_sales": new_sales,
+        "scenario_gross": new_gross,
+        "scenario_operating_profit": new_operating_profit,
+    }
     return result
 
 
@@ -1304,6 +1335,35 @@ def forecast_cashflow(plan_df: pd.DataFrame, starting_cash: float) -> pd.DataFra
         )
     forecast_df = pd.DataFrame(records)
     return forecast_df
+
+
+def adjust_cashflow_plan_for_scenario(
+    plan_df: pd.DataFrame,
+    operating_profit_delta: float,
+    *,
+    launch_cost: float = 0.0,
+    launch_month_index: int = 1,
+) -> pd.DataFrame:
+    """シナリオ効果をキャッシュフロープランに反映する。"""
+
+    if plan_df is None or plan_df.empty:
+        return plan_df
+
+    adjusted = plan_df.copy()
+    numeric_columns = ["operating_cf", "investment_cf", "financing_cf", "loan_repayment"]
+    for column in numeric_columns:
+        if column in adjusted.columns:
+            adjusted[column] = pd.to_numeric(adjusted[column], errors="coerce").fillna(0.0)
+
+    adjusted["operating_cf"] = adjusted["operating_cf"] + float(operating_profit_delta)
+
+    launch_idx = max(int(launch_month_index) - 1, 0)
+    if launch_cost and 0 <= launch_idx < len(adjusted):
+        target_column = "investment_cf" if "investment_cf" in adjusted.columns else "operating_cf"
+        current_value = float(adjusted.iloc[launch_idx][target_column])
+        adjusted.iloc[launch_idx, adjusted.columns.get_loc(target_column)] = current_value + float(launch_cost)
+
+    return adjusted
 
 
 def build_alerts(
