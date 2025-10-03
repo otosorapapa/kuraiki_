@@ -7318,27 +7318,40 @@ def main() -> None:
         ensure_widget_mirror("use_sample_data")
     use_sample_data = bool(st.session_state.get("use_sample_data", True))
 
-    default_theme_mode = st.session_state.get("ui_theme_mode", "dark")
-    dark_mode = st.sidebar.toggle(
-        "ダークテーマ",
-        value=(default_theme_mode == "dark"),
-        key="ui_theme_toggle",
-        help="ライトテーマに切り替えると背景が明るい配色になります。",
+    admin_mode_enabled = bool(st.session_state.get("admin_mode_toggle", False))
+    expander_state_key = "sidebar_details_expanded"
+    if expander_state_key not in st.session_state:
+        st.session_state[expander_state_key] = admin_mode_enabled
+
+    details_expander = st.sidebar.expander(
+        "詳細設定",
+        expanded=st.session_state.get(expander_state_key, admin_mode_enabled),
     )
-    st.session_state["ui_theme_mode"] = "dark" if dark_mode else "light"
+
+    with details_expander:
+        default_theme_mode = st.session_state.get("ui_theme_mode", "dark")
+        dark_mode = details_expander.toggle(
+            "ダークテーマ",
+            value=(default_theme_mode == "dark"),
+            key="ui_theme_toggle",
+            help="ライトテーマに切り替えると背景が明るい配色になります。",
+        )
+        st.session_state["ui_theme_mode"] = "dark" if dark_mode else "light"
+
+        details_expander.toggle(
+            "管理者モード",
+            value=admin_mode_enabled,
+            key="admin_mode_toggle",
+            help="管理者向けの詳細なログ表示を有効化します。",
+        )
+
+    st.session_state[expander_state_key] = details_expander.expanded
 
     inject_mckinsey_style(dark_mode=dark_mode)
 
     render_intro_section()
     render_onboarding_tour_overlay()
     render_sharing_instruction_banner()
-
-    st.sidebar.toggle(
-        "管理者モード",
-        value=bool(st.session_state.get("admin_mode_toggle", False)),
-        key="admin_mode_toggle",
-        help="管理者向けの詳細なログ表示を有効化します。",
-    )
 
     st.sidebar.image(COMPANY_LOGO_URL, width=140)
     st.sidebar.caption("McKinsey inspired analytics suite")
